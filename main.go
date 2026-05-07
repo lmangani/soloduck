@@ -281,15 +281,23 @@ func repl(db *duckdb.Conn, mode string) {
 		}
 
 		// Read full lines (until CR or LF). Ignore consecutive blank lines without re-printing "D".
+		// replReadLine must copy into allocator memory: Solod/C Builder.String() views stack buf.
 		var line string
 		var rerr error
 		for {
-			line, rerr = replReadLine(&br)
+			next, err := replReadLine(alloc, &br)
+			if line != "" {
+				mem.FreeString(alloc, line)
+			}
+			line = next
+			rerr = err
 			if rerr != nil && rerr != io.EOF {
+				mem.FreeString(alloc, line)
 				println("stdin read failed")
 				os.Exit(1)
 			}
 			if rerr == io.EOF && line == "" && acc.Len() == 0 {
+				mem.FreeString(alloc, line)
 				println()
 				return
 			}
@@ -302,6 +310,7 @@ func repl(db *duckdb.Conn, mode string) {
 				if len(t) > 0 && strings.HasSuffix(t, ";") {
 					runSQL(*db, t, m)
 				}
+				mem.FreeString(alloc, line)
 				return
 			}
 			// Blank line at start of new statement: stay silent, no extra "D " lines.
@@ -309,16 +318,21 @@ func repl(db *duckdb.Conn, mode string) {
 
 		trim := strings.TrimSpace(line)
 		if acc.Len() == 0 && handleDot(db, trim, &m, alloc) {
+			mem.FreeString(alloc, line)
 			continue
 		}
 		if acc.Len() == 0 && handleMeta(trim) {
+			mem.FreeString(alloc, line)
 			continue
 		}
 
 		if !writeLine(&acc, line) {
+			mem.FreeString(alloc, line)
 			os.Exit(1)
 		}
-		if strings.HasSuffix(strings.TrimSpace(line), ";") {
+		endStmt := strings.HasSuffix(trim, ";")
+		mem.FreeString(alloc, line)
+		if endStmt {
 			sql := strings.TrimSpace(acc.String())
 			acc.Reset()
 			runSQL(*db, sql, m)
@@ -327,13 +341,14 @@ func repl(db *duckdb.Conn, mode string) {
 }
 
 // replReadLine reads until '\r', '\n', or CRLF (ReadString('\\n') misses CR-only Enter).
-func replReadLine(br *bufio.Reader) (string, error) {
+// Returned string is allocator-owned; caller must mem.FreeString when done.
+func replReadLine(alloc mem.Allocator, br *bufio.Reader) (string, error) {
 	var cur strings.Builder
 	for {
 		b, err := br.ReadByte()
 		if err != nil {
 			if err == io.EOF && cur.Len() > 0 {
-				return cur.String(), io.EOF
+				return strings.Clone(alloc, cur.String()), io.EOF
 			}
 			return "", err
 		}
@@ -341,10 +356,10 @@ func replReadLine(br *bufio.Reader) (string, error) {
 			if nb, err2 := br.ReadByte(); err2 == nil && nb != '\n' {
 				_ = br.UnreadByte()
 			}
-			return cur.String(), nil
+			return strings.Clone(alloc, cur.String()), nil
 		}
 		if b == '\n' {
-			return cur.String(), nil
+			return strings.Clone(alloc, cur.String()), nil
 		}
 		if err := cur.WriteByte(b); err != nil {
 			return "", err
