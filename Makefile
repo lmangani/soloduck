@@ -42,7 +42,7 @@ translate:
 build: translate
 	@test -n "$(DUCK_PREFIX)" || (echo "Install libduckdb or set DUCK_PREFIX."; exit 1)
 	@test -n "$(CSRCS)" || (echo "No generated C sources under $(GEN); translate failed?"; exit 1)
-	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -Werror -Wno-shadow \
+	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -Werror -Wno-shadow -fno-strict-aliasing \
 		-I$(CURDIR)/$(GEN) -I$(DUCK_PREFIX)/include \
 		$(CSRCS) -o soloduck \
 		$(LDFLAGS) $(DUCK_LD_LIBS) $(DUCK_RPATH) $(DUCK_SYS_LIBS)
