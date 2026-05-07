@@ -1,0 +1,112 @@
+# Continuous build on main — same DuckDB static-libs layout as release (no artifacts uploaded).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  DUCKDB_VERSION: v1.4.4
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+
+    steps:
+      - name: Checkout (with Solod submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: solod/go.sum
+
+      - name: Install DuckDB static-libs bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/duckdb/include" "${RUNNER_TEMP}/duckdb/lib"
+          curl -fsSL -o /tmp/static-libs.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/static-libs-linux-${{ matrix.arch }}.zip"
+          unzip -q -o /tmp/static-libs.zip -d "${RUNNER_TEMP}/duckdb-staging"
+          mv "${RUNNER_TEMP}/duckdb-staging/duckdb.h" "${RUNNER_TEMP}/duckdb/include/"
+          mv "${RUNNER_TEMP}/duckdb-staging/"*.a "${RUNNER_TEMP}/duckdb/lib/"
+          rm -rf "${RUNNER_TEMP}/duckdb-staging"
+
+      - name: Build
+        env:
+          DUCK_PREFIX: ${{ runner.temp }}/duckdb
+          DUCK_LINK_STATIC: "1"
+          LDFLAGS: -static-libgcc -static-libstdc++
+        run: make clean build
+
+      - name: Smoke test
+        run: ./soloduck -version
+
+  macos:
+    name: macOS latest
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout (with Solod submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: solod/go.sum
+
+      - name: Map runner CPU to DuckDB static-libs bundle
+        id: arch
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              echo "duck_arch=arm64" >> "$GITHUB_OUTPUT"
+              echo "name=arm64 (Apple silicon)" >> "$GITHUB_OUTPUT"
+              ;;
+            x86_64)
+              echo "duck_arch=amd64" >> "$GITHUB_OUTPUT"
+              echo "name=amd64 (Intel)" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "unsupported uname -m=$(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Install DuckDB static-libs bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/duckdb/include" "${RUNNER_TEMP}/duckdb/lib"
+          curl -fsSL -o /tmp/static-libs.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/static-libs-osx-${{ steps.arch.outputs.duck_arch }}.zip"
+          unzip -q -o /tmp/static-libs.zip -d "${RUNNER_TEMP}/duckdb-staging"
+          mv "${RUNNER_TEMP}/duckdb-staging/duckdb.h" "${RUNNER_TEMP}/duckdb/include/"
+          mv "${RUNNER_TEMP}/duckdb-staging/"*.a "${RUNNER_TEMP}/duckdb/lib/"
+          rm -rf "${RUNNER_TEMP}/duckdb-staging"
+
+      - name: Build
+        env:
+          DUCK_PREFIX: ${{ runner.temp }}/duckdb
+          DUCK_LINK_STATIC: "1"
+        run: make clean build
+
+      - name: Smoke test
+        run: ./soloduck -version

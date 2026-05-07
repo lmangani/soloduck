@@ -27,6 +27,10 @@ You need **libduckdb** on the machine ([install](https://duckdb.org/install/?env
 make DUCK_PREFIX=/usr/local
 ```
 
+## CI
+
+Pushes and pull requests against **`main`** run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Linux (**amd64** + **arm64**) and **macOS** builds using the same DuckDB **static-libs** bundles as [releases](.github/workflows/release.yml), then `./soloduck -version`.
+
 ## Layout
 
 | Path | Purpose |
