@@ -258,8 +258,7 @@ func readStdinAll(alloc mem.Allocator) string {
 
 func repl(db *duckdb.Conn, mode string) {
 	var alloc mem.Allocator
-	// Read from the controlling terminal when possible. stdin may be redirected
-	// (pipes, IDE runners, CI); interactive SQL must still read keyboard input.
+	// Read from the controlling terminal when possible (see README).
 	input := os.Stdin
 	var tty os.File
 	if f, err := os.Open("/dev/tty"); err == nil {
@@ -272,81 +271,84 @@ func repl(db *duckdb.Conn, mode string) {
 
 	acc := strings.NewBuilder(alloc)
 	defer acc.Free()
-	cur := strings.NewBuilder(alloc)
-	defer cur.Free()
 
 	m := normalizeMode(mode)
 	for {
-		if acc.Len() == 0 && cur.Len() == 0 {
+		if acc.Len() == 0 {
 			print("D ")
-		} else if cur.Len() == 0 {
+		} else {
 			print("  ")
 		}
 
-		b, err := br.ReadByte()
-		if err != nil {
-			if err == io.EOF {
-				if acc.Len() == 0 && cur.Len() == 0 {
-					println()
-					return
-				}
-				text := strings.TrimSpace(acc.String() + cur.String())
-				if len(text) > 0 && strings.HasSuffix(text, ";") {
-					runSQL(*db, text, m)
+		// Read full lines (until CR or LF). Ignore consecutive blank lines without re-printing "D".
+		var line string
+		var rerr error
+		for {
+			line, rerr = replReadLine(&br)
+			if rerr != nil && rerr != io.EOF {
+				println("stdin read failed")
+				os.Exit(1)
+			}
+			if rerr == io.EOF && line == "" && acc.Len() == 0 {
+				println()
+				return
+			}
+			trim := strings.TrimSpace(line)
+			if trim != "" || acc.Len() > 0 {
+				break
+			}
+			if rerr == io.EOF {
+				t := strings.TrimSpace(acc.String())
+				if len(t) > 0 && strings.HasSuffix(t, ";") {
+					runSQL(*db, t, m)
 				}
 				return
 			}
-			println("stdin read failed")
-			os.Exit(1)
+			// Blank line at start of new statement: stay silent, no extra "D " lines.
 		}
 
-		// Line ending: many terminals send CR-only without LF; ReadString('\n') never completed.
-		if b == '\r' {
-			if nb, err2 := br.ReadByte(); err2 == nil && nb != '\n' {
-				_ = br.UnreadByte()
-			}
-			replFlushPhysicalLine(db, &acc, &cur, &m, alloc)
+		trim := strings.TrimSpace(line)
+		if acc.Len() == 0 && handleDot(db, trim, &m, alloc) {
 			continue
 		}
-		if b == '\n' {
-			replFlushPhysicalLine(db, &acc, &cur, &m, alloc)
+		if acc.Len() == 0 && handleMeta(trim) {
 			continue
 		}
 
-		if err := cur.WriteByte(b); err != nil {
+		if !writeLine(&acc, line) {
 			os.Exit(1)
 		}
-
-		// Execute as soon as the accumulated SQL ends with ';' — no newline required.
-		full := acc.String() + cur.String()
-		if strings.HasSuffix(strings.TrimSpace(full), ";") {
-			sql := strings.TrimSpace(full)
+		if strings.HasSuffix(strings.TrimSpace(line), ";") {
+			sql := strings.TrimSpace(acc.String())
 			acc.Reset()
-			cur.Reset()
 			runSQL(*db, sql, m)
 		}
 	}
 }
 
-func replFlushPhysicalLine(db *duckdb.Conn, acc *strings.Builder, cur *strings.Builder, m *string, alloc mem.Allocator) {
-	line := cur.String()
-	cur.Reset()
-	trim := strings.TrimSpace(line)
-
-	if acc.Len() == 0 && handleDot(db, trim, m, alloc) {
-		return
-	}
-	if acc.Len() == 0 && handleMeta(trim) {
-		return
-	}
-
-	if !writeLine(acc, line) {
-		os.Exit(1)
-	}
-	if strings.HasSuffix(strings.TrimSpace(line), ";") {
-		sql := strings.TrimSpace(acc.String())
-		acc.Reset()
-		runSQL(*db, sql, *m)
+// replReadLine reads until '\r', '\n', or CRLF (ReadString('\\n') misses CR-only Enter).
+func replReadLine(br *bufio.Reader) (string, error) {
+	var cur strings.Builder
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			if err == io.EOF && cur.Len() > 0 {
+				return cur.String(), io.EOF
+			}
+			return "", err
+		}
+		if b == '\r' {
+			if nb, err2 := br.ReadByte(); err2 == nil && nb != '\n' {
+				_ = br.UnreadByte()
+			}
+			return cur.String(), nil
+		}
+		if b == '\n' {
+			return cur.String(), nil
+		}
+		if err := cur.WriteByte(b); err != nil {
+			return "", err
+		}
 	}
 }
 
