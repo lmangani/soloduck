@@ -282,16 +282,39 @@ func repl(db *duckdb.Conn, mode string) {
 		line := strings.TrimSuffix(strings.TrimSuffix(raw, "\n"), "\r")
 		mem.FreeString(alloc, raw)
 
-		if rerr == io.EOF && line == "" && acc.Len() == 0 {
+		eof := rerr == io.EOF
+		trim := strings.TrimSpace(line)
+
+		// EOF (e.g. Ctrl-D) with no pending statement: exit the REPL.
+		if eof && trim == "" && acc.Len() == 0 {
 			println()
 			return
 		}
 
-		trim := strings.TrimSpace(line)
+		// EOF on an empty continuation line while acc holds a partial statement: stop here.
+		// Without this branch, writeLine("", ...) runs every iteration and never terminates.
+		if eof && trim == "" && acc.Len() > 0 {
+			sql := strings.TrimSpace(acc.String())
+			acc.Reset()
+			if len(sql) > 0 && strings.HasSuffix(sql, ";") {
+				runSQL(*db, sql, m)
+			}
+			println()
+			return
+		}
+
 		if acc.Len() == 0 && handleDot(db, trim, &m, alloc) {
+			if eof {
+				println()
+				return
+			}
 			continue
 		}
 		if acc.Len() == 0 && handleMeta(trim) {
+			if eof {
+				println()
+				return
+			}
 			continue
 		}
 
@@ -302,6 +325,12 @@ func repl(db *duckdb.Conn, mode string) {
 			sql := strings.TrimSpace(acc.String())
 			acc.Reset()
 			runSQL(*db, sql, m)
+		}
+
+		// Last physical line had no trailing newline (EOF): nothing more to read.
+		if eof {
+			println()
+			return
 		}
 	}
 }
