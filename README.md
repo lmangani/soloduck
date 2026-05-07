@@ -51,6 +51,8 @@ See `-help`. Common cases:
 
 So emits C; fully static linking depends on a static `libduckdb` and your platform.
 
+Published **GitHub Releases** include CI-built Linux **x86_64** and **arm64** binaries (see `.github/workflows/release.yml`): they link DuckDB’s official `libduckdb_static.a` plus `-static-libgcc`/`-static-libstdc++`; the C library (`libc`) stays dynamically linked on Linux unless you use a musl or fully `-static` toolchain yourself.
+
 ## License
 
 Combine Solod’s BSD-3-Clause with your choice for this repo.
