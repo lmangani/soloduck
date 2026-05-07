@@ -1,4 +1,5 @@
 gen/
 soloduck
+scripts/benchmark_go_once/benchmark_go_once
 *.dSYM/
 *.o
