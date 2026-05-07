@@ -1,0 +1,3 @@
+[submodule "solod"]
+	path = solod
+	url = https://github.com/solod-dev/solod.git

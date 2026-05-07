@@ -1,22 +1,16 @@
 # Build soloduck: translate with Solod (So), then link against libduckdb.
 #
-# Requires stock Solod (https://github.com/solod-dev/solod). DuckDB shim is ./duckdb.
-#
-# Layout A (submodule): default SOLID=..  → parent solod repo root.
-# Layout B (sibling):   make SOLID=../solod
+# Requires:
+#   git submodule update --init   # loads ./solod (github.com/solod-dev/solod)
+#   libduckdb (headers + library): https://duckdb.org/install/?environment=c
 #
 #   make        # translate + link
-#   make clean
+#   make clean  # removes gen/ and binary only (keeps ./solod submodule)
 #
-# If Homebrew DuckDB is not on PATH, set:
-#   make DUCK_PREFIX=/path/to/duckdb
-#
-# Static linking: DuckDB distribute libduckdb_static.a; on Linux you can try
-#   make LDFLAGS='-static -lduckdb_static ...'
-# after consulting the DuckDB C installation docs. macOS rarely supports
-# fully static executables the same way.
+# Override DuckDB install prefix if needed:
+#   make DUCK_PREFIX=/path/to/prefix
 
-SOLID ?= ..
+SOLID ?= ./solod
 GEN ?= gen
 DUCK_PREFIX ?= $(shell brew --prefix duckdb 2>/dev/null)
 RPATH ?= -Wl,-rpath,$(DUCK_PREFIX)/lib
@@ -27,6 +21,7 @@ CSRCS = $(shell find $(GEN) -name '*.c' 2>/dev/null)
 all: build
 
 translate:
+	@test -d "$(SOLID)/cmd/so" || (echo "Missing Solod checkout. Run: git submodule update --init"; exit 1)
 	@mkdir -p $(GEN)
 	cd $(SOLID) && go run ./cmd/so translate -o "$(CURDIR)/$(GEN)" "$(CURDIR)"
 

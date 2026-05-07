@@ -1,84 +1,55 @@
 # soloduck
 
-Interactive **DuckDB** shell written in **[Solod](https://github.com/solod-dev/solod)** (So), linked against **libduckdb**.
+Interactive **DuckDB** shell in **[Solod](https://github.com/solod-dev/solod)** (So), linked against **libduckdb**.
 
-This repo contains **everything you need** besides upstream Solod and the DuckDB SDK:
+This repository is **self-contained**: it vendors the compiler/stdlib as a **git submodule** (`solod` → [solod-dev/solod](https://github.com/solod-dev/solod)) and ships the DuckDB C bindings in **`duckdb/`**. No fork of Solod is required.
 
-- **`main.go`** — CLI (dot-commands, `-c`, output modes, …).
-- **`duckdb/`** — Solod package wrapping the DuckDB C API (`duckdb.h`). Stock **`solod.dev`** does not ship DuckDB; this copy lives here so you can use **[solod-dev/solod](https://github.com/solod-dev/solod)** `main` without a fork.
-
-Behavior is **loosely aligned** with the official DuckDB CLI (LTS docs):
+CLI behavior is loosely aligned with the official DuckDB CLI (LTS):
 
 - [CLI overview](https://duckdb.org/docs/lts/clients/cli/overview)
-- [Command-line arguments](https://duckdb.org/docs/lts/clients/cli/arguments)
+- [Arguments](https://duckdb.org/docs/lts/clients/cli/arguments)
 - [Dot commands](https://duckdb.org/docs/lts/clients/cli/dot_commands)
-- [Output formats](https://duckdb.org/docs/lts/clients/cli/output_formats)
 
-Gaps vs the full CLI: no readline/history/syntax highlighting, no `~/.duckdbrc`, incomplete `.mode` set, `-readonly` not enforced in the C shim, `.complete` is keyword-prefix hints only.
-
-## Prerequisites
-
-1. **Solod** — clone [github.com/solod-dev/solod](https://github.com/solod-dev/solod) (any revision that matches your `solod.dev` replace). You only need the compiler and `so/*` stdlib from that tree.
-2. **libduckdb** — headers + library ([installation](https://duckdb.org/install/?environment=c)).
-
-## Layout A — `soloduck` as a submodule (inside `solod/`)
+## Build (from this repo only)
 
 ```bash
-git clone https://github.com/solod-dev/solod.git
-cd solod
-git submodule add https://github.com/lmangani/soloduck.git soloduck   # or: submodule update --init
+git clone https://github.com/lmangani/soloduck.git
 cd soloduck
-# go.mod already has: replace solod.dev => ../
+git submodule update --init
 make
 ./soloduck -version
 ```
 
-## Layout B — sibling directories (`solod/` + `soloduck/`)
+You need **libduckdb** on the machine ([install](https://duckdb.org/install/?environment=c)). On macOS with Homebrew, `make` picks up `$(brew --prefix duckdb)` automatically; elsewhere set `DUCK_PREFIX` if headers/libs are not found:
 
 ```bash
-git clone https://github.com/solod-dev/solod.git
-git clone https://github.com/lmangani/soloduck.git
-cd soloduck
+make DUCK_PREFIX=/usr/local
 ```
 
-Edit `go.mod`: **comment** `replace solod.dev => ../` and **uncomment** `replace solod.dev => ../solod`.
+## Layout
 
-```bash
-make SOLID=../solod
-```
-
-## Build
-
-```bash
-make              # uses $(SOLID) default .. for submodule layout
-./soloduck -c 'SELECT version();'
-./soloduck :memory: 'SELECT 42 AS answer'
-```
-
-Override DuckDB install prefix if needed: `make DUCK_PREFIX=/path/to/libduckdb`.
-
-### Arguments (subset)
-
-| Flag | Meaning |
+| Path | Purpose |
 |------|--------|
-| `-help` | Usage summary and exit. |
-| `-version` | Print `duckdb_library_version()` and exit. |
-| `-c SQL` | Run SQL and exit (same role as official `-c` / `-s`). |
-| `-csv` | Initial output mode: CSV. |
-| `-json` | Initial output mode: JSON (array of objects). |
-| `-readonly` | Reserved; prints a warning (read-only open not wired in the shim). |
+| `solod/` | Submodule: upstream Solod (`so translate`, `so/*` stdlib). |
+| `duckdb/` | Solod package wrapping DuckDB’s C API (`duckdb.h`). |
+| `main.go` | CLI entrypoint. |
+| `gen/` | Generated C from `make translate` (removed by `make clean`). |
 
-Positional: optional **FILENAME** (default `:memory:`), optional **second** SQL string for one-shot execution.
+`go.mod` uses `replace solod.dev => ./solod` so imports resolve to the submodule checkout.
 
-### Interactive
+## Flags & usage
 
-- Startup banner similar to the official shell; prompt `D`; multi-line SQL until a line ends with `;`.
-- Dot commands: `.help` `.exit` `.quit` `.open` `.read` `.tables` `.schema` `.mode` `.complete`.
+See `-help`. Common cases:
+
+```bash
+./soloduck -c 'SELECT version();'
+./soloduck :memory: 'SELECT 42 AS n'
+```
 
 ## Static binaries
 
-So emits plain C; fully static linking depends on a static `libduckdb` and your platform (often easier on Linux + musl). See DuckDB’s C install docs.
+So emits C; fully static linking depends on a static `libduckdb` and your platform.
 
 ## License
 
-Same as the projects you combine (Solod is BSD-3-Clause; this repo may use the same or your choice).
+Combine Solod’s BSD-3-Clause with your choice for this repo.
