@@ -20,56 +20,6 @@ const maxDuckboxColWidth = 256
 // dashSegmentMax is the longest ASCII '-' run per cell border segment (width + inner padding).
 const dashSegmentMax = maxDuckboxColWidth + 2
 
-// replDebug enables stderr diagnostics for interactive REPL I/O (-debug-repl or SOLODUCK_DEBUG_REPL=1).
-var replDebug bool
-
-func replDiag(msg string) {
-	if !replDebug {
-		return
-	}
-	// Use println (not stderr): Solod/C omits uses of WriteString return vals (-Werror).
-	println("[soloduck-repl] " + msg)
-}
-
-func replDiagReadByte(b byte) {
-	if !replDebug {
-		return
-	}
-	var nb [16]byte
-	s := strconv.FormatInt(nb[:0], int64(b), 10)
-	msg := "ReadByte byte=" + s
-	switch b {
-	case '\r':
-		msg += " (CR)"
-	case '\n':
-		msg += " (LF)"
-	case '\t':
-		msg += " (TAB)"
-	default:
-		if b < 32 {
-			msg += " (ctrl/non-print)"
-		}
-	}
-	replDiag(msg)
-}
-
-func replDiagEOFTag(err error) string {
-	if err == nil {
-		return "nil"
-	}
-	if err == io.EOF {
-		return "EOF"
-	}
-	return "error"
-}
-
-func boolStr(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
-
 func clampDuckboxWidth(w int) int {
 	if w < 0 {
 		return 0
@@ -168,14 +118,13 @@ var sqlKeywords = []string{
 
 func main() {
 	var (
-		help       bool
-		version    bool
-		execSQL    string
-		csvFlag    bool
-		jsonFlag   bool
-		readonly   bool
-		batch      bool
-		debugReplF bool
+		help     bool
+		version  bool
+		execSQL  string
+		csvFlag  bool
+		jsonFlag bool
+		readonly bool
+		batch    bool
 	)
 	fs := flag.NewFlagSet("soloduck", flag.ExitOnError)
 	fs.BoolVar(&help, "help", false, "show help and exit")
@@ -185,14 +134,7 @@ func main() {
 	fs.BoolVar(&jsonFlag, "json", false, "set output mode to json")
 	fs.BoolVar(&readonly, "readonly", false, "request read-only open (not fully wired; emits a warning)")
 	fs.BoolVar(&batch, "batch", false, "read SQL from stdin with no prompts (pipes and scripts)")
-	fs.BoolVar(&debugReplF, "debug-repl", false, "log REPL raw bytes and line events to stderr")
 	_ = fs.Parse(os.Args[1:])
-
-	replDebug = debugReplF
-	switch os.Getenv("SOLODUCK_DEBUG_REPL") {
-	case "1", "true", "TRUE", "yes", "YES", "y", "Y":
-		replDebug = true
-	}
 
 	if help {
 		printUsage()
@@ -246,7 +188,7 @@ func main() {
 	}
 
 	printBanner(dbPath)
-	repl(&db, initialMode, replDebug)
+	repl(&db, initialMode)
 	os.Exit(0)
 }
 
@@ -264,7 +206,6 @@ func printUsage() {
 	println("  -csv           initial output mode: csv")
 	println("  -json          initial output mode: json")
 	println("  -batch          run SQL from stdin (no interactive prompt; use with pipes)")
-	println("  -debug-repl     log each REPL ReadByte and line events (printed with println)")
 	println("  -readonly      reserved (read-only open not implemented)")
 	println("")
 	println("With no FILENAME, connects to an in-memory database (:memory:).")
@@ -315,21 +256,9 @@ func readStdinAll(alloc mem.Allocator) string {
 	return out
 }
 
-func repl(db *duckdb.Conn, mode string, diag bool) {
-	replDebug = diag
+func repl(db *duckdb.Conn, mode string) {
 	var alloc mem.Allocator
-	// Read from the controlling terminal when possible (see README).
-	input := os.Stdin
-	inputLabel := "stdin"
-	var tty os.File
-	if f, err := os.Open("/dev/tty"); err == nil {
-		tty = f
-		input = &tty
-		inputLabel = "/dev/tty"
-		defer tty.Close()
-	}
-	replDiag("read source: " + inputLabel)
-	br := bufio.NewReader(alloc, input)
+	br := bufio.NewReader(alloc, os.Stdin)
 	defer br.Free()
 
 	acc := strings.NewBuilder(alloc)
@@ -343,124 +272,36 @@ func repl(db *duckdb.Conn, mode string, diag bool) {
 			print("  ")
 		}
 
-		// Read full lines (until CR or LF). replReadLine must copy into allocator memory:
-		// Solod/C Builder.String() views stack buf.
-		var line string
-		var rerr error
-		for {
-			next, err := replReadLine(alloc, &br)
-			if line != "" {
-				mem.FreeString(alloc, line)
-			}
-			line = next
-			rerr = err
-			if rerr != nil && rerr != io.EOF {
-				mem.FreeString(alloc, line)
-				println("stdin read failed")
-				os.Exit(1)
-			}
-			if rerr == io.EOF && line == "" && acc.Len() == 0 {
-				mem.FreeString(alloc, line)
-				println()
-				return
-			}
-			trim := strings.TrimSpace(line)
-			if trim != "" || acc.Len() > 0 {
-				break
-			}
-			if rerr == io.EOF {
-				t := strings.TrimSpace(acc.String())
-				if len(t) > 0 && strings.HasSuffix(t, ";") {
-					runSQL(*db, t, m)
-				}
-				mem.FreeString(alloc, line)
-				return
-			}
-			// Blank line at start of a new statement: leave inner loop so the outer loop runs again
-			// and prints a fresh "D " prompt. (Staying in the inner loop only re-reads with no new
-			// prompt, which looks hung until EOF/Ctrl-D.)
-			break
+		raw, rerr := br.ReadString('\n')
+		if rerr != nil && rerr != io.EOF {
+			mem.FreeString(alloc, raw)
+			println("stdin read failed")
+			os.Exit(1)
+		}
+
+		line := strings.TrimSuffix(strings.TrimSuffix(raw, "\n"), "\r")
+		mem.FreeString(alloc, raw)
+
+		if rerr == io.EOF && line == "" && acc.Len() == 0 {
+			println()
+			return
 		}
 
 		trim := strings.TrimSpace(line)
 		if acc.Len() == 0 && handleDot(db, trim, &m, alloc) {
-			mem.FreeString(alloc, line)
 			continue
 		}
 		if acc.Len() == 0 && handleMeta(trim) {
-			mem.FreeString(alloc, line)
 			continue
 		}
 
 		if !writeLine(&acc, line) {
-			mem.FreeString(alloc, line)
 			os.Exit(1)
 		}
-		endStmt := strings.HasSuffix(trim, ";")
-		if replDebug {
-			var nb [16]byte
-			tl := strconv.FormatInt(nb[:0], int64(len(trim)), 10)
-			replDiag("stmt check: endStmt=" + boolStr(endStmt) + " trimLen=" + tl)
-		}
-		mem.FreeString(alloc, line)
-		if endStmt {
+		if strings.HasSuffix(trim, ";") {
 			sql := strings.TrimSpace(acc.String())
-			if replDebug {
-				var nb [24]byte
-				sl := strconv.FormatInt(nb[:0], int64(len(sql)), 10)
-				replDiag("runSQL len=" + sl)
-			}
 			acc.Reset()
 			runSQL(*db, sql, m)
-		}
-	}
-}
-
-// replReadLine reads until '\r', '\n', or CRLF (ReadString('\\n') misses CR-only Enter).
-// Returned string is allocator-owned; caller must mem.FreeString when done.
-func replReadLine(alloc mem.Allocator, br *bufio.Reader) (string, error) {
-	var cur strings.Builder
-	for {
-		b, err := br.ReadByte()
-		if err != nil {
-			if replDebug {
-				replDiag("ReadByte error: " + replDiagEOFTag(err))
-			}
-			if err == io.EOF && cur.Len() > 0 {
-				out := strings.Clone(alloc, cur.String())
-				if replDebug {
-					var nb [16]byte
-					ls := strconv.FormatInt(nb[:0], int64(len(out)), 10)
-					replDiag("line complete (EOF with pending chars) len=" + ls)
-				}
-				return out, io.EOF
-			}
-			return "", err
-		}
-		replDiagReadByte(b)
-		if b == '\r' {
-			if pb, err2 := br.ReadByte(); err2 == nil && pb != '\n' {
-				_ = br.UnreadByte()
-			}
-			out := strings.Clone(alloc, cur.String())
-			if replDebug {
-				var nb [16]byte
-				ls := strconv.FormatInt(nb[:0], int64(len(out)), 10)
-				replDiag("line complete (terminator CR) len=" + ls)
-			}
-			return out, nil
-		}
-		if b == '\n' {
-			out := strings.Clone(alloc, cur.String())
-			if replDebug {
-				var nb [16]byte
-				ls := strconv.FormatInt(nb[:0], int64(len(out)), 10)
-				replDiag("line complete (terminator LF) len=" + ls)
-			}
-			return out, nil
-		}
-		if err := cur.WriteByte(b); err != nil {
-			return "", err
 		}
 	}
 }

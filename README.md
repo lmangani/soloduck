@@ -52,7 +52,7 @@ One-shot SQL (same idea as official `duckdb -c`):
 ./soloduck :memory: 'SELECT 42 AS n'
 ```
 
-- **Interactive REPL** (no `-c` and no SQL argument): prompt `D`, type SQL ending with **`;`** then **Enter**; dot-commands (`.help`, `.mode`, `.open`, `.read`, …). Lines are read until carriage return or line feed (CR-only **Enter** is supported). Input uses **`/dev/tty`** when available so the keyboard works even if stdin is redirected—use **`-batch`** for pipes.
+- **Interactive REPL** (no `-c` and no SQL argument): prompt `D`, type SQL ending with **`;`** then **Enter**; dot-commands (`.help`, `.mode`, `.open`, `.read`, …). Lines are read with **`bufio.Reader.ReadString('\\n')`** on **`os.Stdin`** (same pattern as typical Go CLIs). Use **`-batch`** when stdin is a pipe or file script.
 - **`-batch`**: read stdin as a script with no prompts (pipes and files).
 - **Output modes**: `-csv`, `-json`, or `.mode …`. Default **`duckbox`** tries to mirror the official CLI table layout (UTF-8 box drawing, column names, physical type row, separator, data rows; numeric columns right-aligned). Use `.mode ascii` for plain `|` tables without the type row.
 
