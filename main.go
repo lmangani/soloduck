@@ -258,7 +258,16 @@ func readStdinAll(alloc mem.Allocator) string {
 
 func repl(db *duckdb.Conn, mode string) {
 	var alloc mem.Allocator
-	br := bufio.NewReader(alloc, os.Stdin)
+	// Read from the controlling terminal when possible. stdin may be redirected
+	// (pipes, IDE runners, CI); interactive SQL must still read keyboard input.
+	input := os.Stdin
+	var tty os.File
+	if f, err := os.Open("/dev/tty"); err == nil {
+		tty = f
+		input = &tty
+		defer tty.Close()
+	}
+	br := bufio.NewReader(alloc, input)
 	defer br.Free()
 
 	acc := strings.NewBuilder(alloc)

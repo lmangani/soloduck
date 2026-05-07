@@ -52,7 +52,7 @@ One-shot SQL (same idea as official `duckdb -c`):
 ./soloduck :memory: 'SELECT 42 AS n'
 ```
 
-- **Interactive REPL** (no `-c` and no SQL argument): prompt `D`, SQL until `;`, dot-commands (`.help`, `.mode`, `.open`, `.read`, …).
+- **Interactive REPL** (no `-c` and no SQL argument): prompt `D`, SQL until `;`, dot-commands (`.help`, `.mode`, `.open`, `.read`, …). Input is read from **`/dev/tty`** when available (the real keyboard), so the shell works even if **stdin is redirected**—use **`-batch`** for piped scripts instead.
 - **`-batch`**: read stdin as a script with no prompts (pipes and files).
 - **Output modes**: `-csv`, `-json`, or `.mode …`. Default **`duckbox`** tries to mirror the official CLI table layout (UTF-8 box drawing, column names, physical type row, separator, data rows; numeric columns right-aligned). Use `.mode ascii` for plain `|` tables without the type row.
 
