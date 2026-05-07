@@ -74,7 +74,7 @@ jobs:
           files: ${{ steps.name.outputs.asset }}
 
   macos:
-    name: macOS ${{ steps.arch.outputs.name }}
+    name: macOS latest
     runs-on: macos-latest
     steps:
       - name: Checkout (with Solod submodule)
