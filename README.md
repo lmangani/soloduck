@@ -2,7 +2,14 @@
 
 Interactive **DuckDB** shell written in **[Solod](https://github.com/lmangani/solod)** (So): the same Go subset the `solod` compiler translates to C, linked against **libduckdb**. This repo is both a small end-user CLI and a demo of [`solod.dev/so/duckdb`](https://github.com/lmangani/solod/tree/main/so/duckdb).
 
-Design goal: stay close in spirit to the [official DuckDB CLI](https://duckdb.org/docs/current/clients/cli/overview) (dot-commands, lightweight SQL keyword hints), without pretending to match every feature (no embedded readline; “autocomplete” is `.complete` / prefix lists).
+Behavior is **loosely aligned** with the official CLI described in the DuckDB docs (LTS):
+
+- [CLI overview](https://duckdb.org/docs/lts/clients/cli/overview)
+- [Command-line arguments](https://duckdb.org/docs/lts/clients/cli/arguments)
+- [Dot commands](https://duckdb.org/docs/lts/clients/cli/dot_commands)
+- [Output formats](https://duckdb.org/docs/lts/clients/cli/output_formats)
+
+Gaps vs the full CLI include: no readline/history/syntax highlighting, no `~/.duckdbrc`, incomplete `.mode` set, `-readonly` not enforced at the C API layer, and `.complete` is keyword-prefix hints only—not engine-backed autocomplete.
 
 ## Submodule layout
 
@@ -19,23 +26,32 @@ git submodule update --init soloduck
 Requires [libduckdb](https://duckdb.org/install/?environment=c) (headers + shared or static library), same as any So program using `so/duckdb`.
 
 ```bash
-make          # translate with `so translate`, then cc + -lduckdb
+make              # translate with `so translate`, then cc + -lduckdb
 ./soloduck -version
-./soloduck -e 'SELECT version();'
+./soloduck -c 'SELECT version();'
+./soloduck :memory: 'SELECT 42 AS answer'
 ```
 
-Options:
+### Arguments (subset)
+
+Matches the spirit of `duckdb [OPTIONS] [FILENAME] [SQL]` from the [overview](https://duckdb.org/docs/lts/clients/cli/overview#usage):
 
 | Flag | Meaning |
 |------|--------|
-| `-db path` | Database file or `:memory:` (default). |
-| `-e SQL` | Run one statement and exit (non-interactive). |
+| `-help` | Usage summary and exit. |
 | `-version` | Print `duckdb_library_version()` and exit. |
+| `-c SQL` | Run SQL and exit (same role as official `-c` / `-s`). |
+| `-csv` | Initial output mode: CSV. |
+| `-json` | Initial output mode: JSON (array of objects). |
+| `-readonly` | Reserved; prints a warning (read-only open not wired in `so/duckdb`). |
 
-Interactive hints:
+Positional: optional **FILENAME** (default in-memory: `:memory:`), optional **second** SQL string for one-shot execution.
 
-- End statements with `;` (multi-line input is accumulated until a line ends with `;`).
-- `.help`, `.tables`, `.schema [table]`, `.mode line|csv`, `.complete [prefix]`.
+### Interactive
+
+- Startup banner lines similar to the official shell (“Enter `.help`…”, in-memory connection hint, `.open` hint).
+- Prompt `D` with continuation lines for multi-line SQL until a line ends with `;`.
+- Dot commands: `.help` `.exit` `.quit` `.open` `.read` `.tables` `.schema` `.mode` `.complete` (see `.help` in-app).
 
 ## Static binaries
 
