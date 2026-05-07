@@ -11,22 +11,43 @@ Behavior is **loosely aligned** with the official CLI described in the DuckDB do
 
 Gaps vs the full CLI include: no readline/history/syntax highlighting, no `~/.duckdbrc`, incomplete `.mode` set, `-readonly` not enforced at the C API layer, and `.complete` is keyword-prefix hints only—not engine-backed autocomplete.
 
-## Submodule layout
+**This repository contains all application source** (`main.go`, `Makefile`, module metadata). Building still requires two external pieces: a **Solod** tree (compiler + `so/*` stdlib, including `so/duckdb`) and **libduckdb** on the link line.
 
-Checked out under the `solod` tree as a **git submodule** (temporary, for co-development):
+## Linking against stock solod (`main`)
+
+Use a Solod checkout whose **`main`** branch includes [`so/duckdb`](https://github.com/lmangani/solod/tree/main/so/duckdb) (e.g. [lmangani/solod](https://github.com/lmangani/solod) `main`). Pick **one** layout and fix `go.mod` `replace` as in comments there.
+
+### Layout A — submodule (`solod/soloduck/`)
 
 ```bash
+git clone https://github.com/lmangani/solod.git
+cd solod
 git submodule update --init soloduck
+cd soloduck
+# go.mod: replace solod.dev => ../
+make
 ```
 
-`go.mod` uses `replace solod.dev => ../` so imports resolve to the parent checkout.
+### Layout B — sibling clones (recommended for forks)
+
+```bash
+git clone https://github.com/lmangani/solod.git
+git clone https://github.com/lmangani/soloduck.git
+cd soloduck
+```
+
+Edit `go.mod`: comment out `replace => ../`, uncomment `replace => ../solod`, then:
+
+```bash
+make SOLID=../solod
+```
 
 ## Build
 
 Requires [libduckdb](https://duckdb.org/install/?environment=c) (headers + shared or static library), same as any So program using `so/duckdb`.
 
 ```bash
-make              # translate with `so translate`, then cc + -lduckdb
+make              # submodule layout; translates via $(SOLID)/cmd/so, default SOLID=..
 ./soloduck -version
 ./soloduck -c 'SELECT version();'
 ./soloduck :memory: 'SELECT 42 AS answer'

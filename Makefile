@@ -1,7 +1,9 @@
 # Build soloduck: translate with Solod (So), then link against libduckdb.
 #
-# Expects this repo as a subdirectory of (or next to) the solod tree, with
-# go.mod `replace solod.dev => ../` pointing at the compiler/stdlib checkout.
+# Requires a Solod checkout whose main branch includes so/duckdb (see README).
+#
+# Layout A (submodule): default SOLID=..  → parent solod repo root.
+# Layout B (sibling):   make SOLID=../solod
 #
 #   make        # translate + link
 #   make clean
