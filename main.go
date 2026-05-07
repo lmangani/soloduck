@@ -272,50 +272,81 @@ func repl(db *duckdb.Conn, mode string) {
 
 	acc := strings.NewBuilder(alloc)
 	defer acc.Free()
+	cur := strings.NewBuilder(alloc)
+	defer cur.Free()
 
 	m := normalizeMode(mode)
 	for {
-		if acc.Len() == 0 {
+		if acc.Len() == 0 && cur.Len() == 0 {
 			print("D ")
-		} else {
-			print("  ") // continuation line (multiline SQL until ';')
+		} else if cur.Len() == 0 {
+			print("  ")
 		}
-		line, err := br.ReadString('\n')
+
+		b, err := br.ReadByte()
 		if err != nil {
 			if err == io.EOF {
-				if acc.Len() == 0 {
+				if acc.Len() == 0 && cur.Len() == 0 {
 					println()
 					return
 				}
-				break
+				text := strings.TrimSpace(acc.String() + cur.String())
+				if len(text) > 0 && strings.HasSuffix(text, ";") {
+					runSQL(*db, text, m)
+				}
+				return
 			}
 			println("stdin read failed")
-			mem.FreeString(alloc, line)
 			os.Exit(1)
 		}
-		line = strings.TrimSuffix(line, "\n")
-		line = strings.TrimSuffix(line, "\r")
-		trim := strings.TrimSpace(line)
 
-		if acc.Len() == 0 && handleDot(db, trim, &m, alloc) {
-			mem.FreeString(alloc, line)
+		// Line ending: many terminals send CR-only without LF; ReadString('\n') never completed.
+		if b == '\r' {
+			if nb, err2 := br.ReadByte(); err2 == nil && nb != '\n' {
+				_ = br.UnreadByte()
+			}
+			replFlushPhysicalLine(db, &acc, &cur, &m, alloc)
 			continue
 		}
-		if acc.Len() == 0 && handleMeta(trim) {
-			mem.FreeString(alloc, line)
+		if b == '\n' {
+			replFlushPhysicalLine(db, &acc, &cur, &m, alloc)
 			continue
 		}
 
-		if !writeLine(&acc, line) {
-			mem.FreeString(alloc, line)
+		if err := cur.WriteByte(b); err != nil {
 			os.Exit(1)
 		}
-		if strings.HasSuffix(strings.TrimSpace(line), ";") {
-			sql := strings.TrimSpace(acc.String())
+
+		// Execute as soon as the accumulated SQL ends with ';' — no newline required.
+		full := acc.String() + cur.String()
+		if strings.HasSuffix(strings.TrimSpace(full), ";") {
+			sql := strings.TrimSpace(full)
 			acc.Reset()
+			cur.Reset()
 			runSQL(*db, sql, m)
 		}
-		mem.FreeString(alloc, line)
+	}
+}
+
+func replFlushPhysicalLine(db *duckdb.Conn, acc *strings.Builder, cur *strings.Builder, m *string, alloc mem.Allocator) {
+	line := cur.String()
+	cur.Reset()
+	trim := strings.TrimSpace(line)
+
+	if acc.Len() == 0 && handleDot(db, trim, m, alloc) {
+		return
+	}
+	if acc.Len() == 0 && handleMeta(trim) {
+		return
+	}
+
+	if !writeLine(acc, line) {
+		os.Exit(1)
+	}
+	if strings.HasSuffix(strings.TrimSpace(line), ";") {
+		sql := strings.TrimSpace(acc.String())
+		acc.Reset()
+		runSQL(*db, sql, *m)
 	}
 }
 
