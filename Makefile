@@ -1,7 +1,7 @@
 # Build soloduck: translate with Solod (So), then link against libduckdb.
 #
 # Requires:
-#   git submodule update --init   # loads ./solod (github.com/solod-dev/solod)
+#   ./solod (git submodule update --init, or clone repo with --recurse-submodules)
 #   libduckdb (headers + library): https://duckdb.org/install/?environment=c
 #
 #   make        # translate + link

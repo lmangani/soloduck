@@ -13,12 +13,13 @@ CLI behavior is loosely aligned with the official DuckDB CLI (LTS):
 ## Build (from this repo only)
 
 ```bash
-git clone https://github.com/lmangani/soloduck.git
+git clone --recurse-submodules https://github.com/lmangani/soloduck.git
 cd soloduck
-git submodule update --init
 make
 ./soloduck -version
 ```
+
+If you cloned without submodules, fetch them once: `git submodule update --init`.
 
 You need **libduckdb** on the machine ([install](https://duckdb.org/install/?environment=c)). On macOS with Homebrew, `make` picks up `$(brew --prefix duckdb)` automatically; elsewhere set `DUCK_PREFIX` if headers/libs are not found:
 
