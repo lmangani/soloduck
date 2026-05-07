@@ -343,8 +343,8 @@ func repl(db *duckdb.Conn, mode string, diag bool) {
 			print("  ")
 		}
 
-		// Read full lines (until CR or LF). Ignore consecutive blank lines without re-printing "D".
-		// replReadLine must copy into allocator memory: Solod/C Builder.String() views stack buf.
+		// Read full lines (until CR or LF). replReadLine must copy into allocator memory:
+		// Solod/C Builder.String() views stack buf.
 		var line string
 		var rerr error
 		for {
@@ -376,7 +376,10 @@ func repl(db *duckdb.Conn, mode string, diag bool) {
 				mem.FreeString(alloc, line)
 				return
 			}
-			// Blank line at start of new statement: stay silent, no extra "D " lines.
+			// Blank line at start of a new statement: leave inner loop so the outer loop runs again
+			// and prints a fresh "D " prompt. (Staying in the inner loop only re-reads with no new
+			// prompt, which looks hung until EOF/Ctrl-D.)
+			break
 		}
 
 		trim := strings.TrimSpace(line)
