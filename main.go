@@ -14,6 +14,100 @@ import (
 	"solod.dev/so/strings"
 )
 
+// Upper bound for displayed column width (must stay modest: dash rules are O(width) per segment).
+const maxDuckboxColWidth = 256
+
+// dashSegmentMax is the longest ASCII '-' run per cell border segment (width + inner padding).
+const dashSegmentMax = maxDuckboxColWidth + 2
+
+func clampDuckboxWidth(w int) int {
+	if w < 0 {
+		return 0
+	}
+	if w > maxDuckboxColWidth {
+		return maxDuckboxColWidth
+	}
+	return w
+}
+
+// measureCellWidth estimates display width for table layout without trusting len(formatCell(...)):
+// Solod/allocator string lengths can be wrong for some cells and previously blew column widths to the cap.
+func measureCellWidth(alloc mem.Allocator, res *duckdb.Result, r, c int) int {
+	nul, err := res.IsNull(r, c)
+	if err != nil {
+		return 1
+	}
+	if nul {
+		return len("NULL")
+	}
+	typ, err := res.ColumnType(c)
+	if err != nil {
+		s, fr := formatCell(alloc, res, r, c)
+		lw := len(s)
+		if fr {
+			mem.FreeString(alloc, s)
+		}
+		return clampDuckboxWidth(lw)
+	}
+	switch typ {
+	case duckdb.ColBoolean:
+		v, e := res.Bool(r, c)
+		if e != nil {
+			return 1
+		}
+		if v {
+			return len("true")
+		}
+		return len("false")
+	case duckdb.ColTinyInt, duckdb.ColSmallInt, duckdb.ColInteger, duckdb.ColBigInt,
+		duckdb.ColUTinyInt, duckdb.ColUSmallInt, duckdb.ColUInteger, duckdb.ColUBigInt,
+		duckdb.ColHugeInt, duckdb.ColUHugeInt, duckdb.ColIntegerLiteral:
+		v, e := res.Int64(r, c)
+		if e != nil {
+			return 1
+		}
+		var buf [32]byte
+		tmp := strconv.FormatInt(buf[:0], v, 10)
+		return len(tmp)
+	case duckdb.ColFloat, duckdb.ColDouble:
+		v, e := res.Float64(r, c)
+		if e != nil {
+			return 1
+		}
+		var buf [64]byte
+		tmp := strconv.FormatFloat(buf[:0], v, 'g', -1, 64)
+		return clampDuckboxWidth(len(tmp))
+	case duckdb.ColDecimal, duckdb.ColBigNum:
+		s, fr := formatCell(alloc, res, r, c)
+		lw := len(s)
+		if fr {
+			mem.FreeString(alloc, s)
+		}
+		return clampDuckboxWidth(lw)
+	default:
+		s, fr := formatCell(alloc, res, r, c)
+		lw := len(s)
+		if fr {
+			mem.FreeString(alloc, s)
+		}
+		return clampDuckboxWidth(lw)
+	}
+}
+
+// printASCIIHyphens prints ASCII '-' exactly n times (bounded). Do not use strings.Repeat for
+// rules: the Solod/C Repeat implementation can stall or mis-size dashes for multi-column tables.
+func printASCIIHyphens(n int) {
+	if n <= 0 {
+		return
+	}
+	if n > dashSegmentMax {
+		n = dashSegmentMax
+	}
+	for i := 0; i < n; i++ {
+		print("-")
+	}
+}
+
 var sqlKeywords = []string{
 	"ALTER", "AND", "AS", "ASC", "ATTACH", "BETWEEN", "BY", "CASE", "CAST", "COPY",
 	"COUNT", "CREATE", "DELETE", "DESC", "DESCRIBE", "DISTINCT", "DROP", "EXPLAIN",
@@ -507,45 +601,45 @@ func printResult(alloc mem.Allocator, res *duckdb.Result, mode string) {
 	}
 }
 
-func computeColumnWidths(alloc mem.Allocator, res *duckdb.Result, rows, cols int) []int {
-	widths := make([]int, cols)
+func computeColumnWidths(alloc mem.Allocator, res *duckdb.Result, rows, cols int, widths []int) {
+	for c := 0; c < cols; c++ {
+		widths[c] = 0
+	}
 	for c := 0; c < cols; c++ {
 		nm, err := res.ColumnName(c)
 		if err != nil {
 			nm = "?"
 		}
-		lw := len(previewStr(nm, 512))
+		lw := len(previewStr(nm, maxDuckboxColWidth))
 		if lw > widths[c] {
 			widths[c] = lw
 		}
 	}
 	for r := 0; r < rows; r++ {
 		for c := 0; c < cols; c++ {
-			s, fr := formatCell(alloc, res, r, c)
-			lw := len(s)
-			if lw > 4096 {
-				lw = 4096
-			}
+			lw := measureCellWidth(alloc, res, r, c)
 			if lw > widths[c] {
 				widths[c] = lw
 			}
-			if fr {
-				mem.FreeString(alloc, s)
-			}
 		}
 	}
-	return widths
+	for c := 0; c < cols; c++ {
+		widths[c] = clampDuckboxWidth(widths[c])
+	}
 }
 
 // computeDuckboxWidths includes column names, physical type labels, and cells (DuckDB CLI duckbox).
-func computeDuckboxWidths(alloc mem.Allocator, res *duckdb.Result, rows, cols int) []int {
-	widths := make([]int, cols)
+// widths must have length >= cols (caller allocates so backing storage survives for Solod/C stack slices).
+func computeDuckboxWidths(alloc mem.Allocator, res *duckdb.Result, rows, cols int, widths []int) {
+	for c := 0; c < cols; c++ {
+		widths[c] = 0
+	}
 	for c := 0; c < cols; c++ {
 		nm, err := res.ColumnName(c)
 		if err != nil {
 			nm = "?"
 		}
-		lw := len(previewStr(nm, 512))
+		lw := len(previewStr(nm, maxDuckboxColWidth))
 		if lw > widths[c] {
 			widths[c] = lw
 		}
@@ -560,66 +654,65 @@ func computeDuckboxWidths(alloc mem.Allocator, res *duckdb.Result, rows, cols in
 	}
 	for r := 0; r < rows; r++ {
 		for c := 0; c < cols; c++ {
-			s, fr := formatCell(alloc, res, r, c)
-			lw := len(s)
-			if lw > 4096 {
-				lw = 4096
-			}
+			lw := measureCellWidth(alloc, res, r, c)
 			if lw > widths[c] {
 				widths[c] = lw
 			}
-			if fr {
-				mem.FreeString(alloc, s)
-			}
 		}
 	}
-	return widths
+	for c := 0; c < cols; c++ {
+		widths[c] = clampDuckboxWidth(widths[c])
+	}
 }
 
-func duckboxPrintRuleTop(alloc mem.Allocator, widths []int, cols int) {
+func duckboxPrintRuleTop(widths []int, cols int) {
 	print("\xe2\x94\x8c")
 	for c := 0; c < cols; c++ {
 		if c > 0 {
 			print("\xe2\x94\xac")
 		}
-		dash := strings.Repeat(alloc, "-", widths[c]+2)
-		print(dash)
-		mem.FreeString(alloc, dash)
+		w := clampDuckboxWidth(widths[c])
+		printASCIIHyphens(w + 2)
 	}
 	println("\xe2\x94\x90")
 }
 
-func duckboxPrintRuleSep(alloc mem.Allocator, widths []int, cols int) {
+func duckboxPrintRuleSep(widths []int, cols int) {
 	print("\xe2\x94\x9c")
 	for c := 0; c < cols; c++ {
 		if c > 0 {
 			print("\xe2\x94\xbc")
 		}
-		dash := strings.Repeat(alloc, "-", widths[c]+2)
-		print(dash)
-		mem.FreeString(alloc, dash)
+		w := clampDuckboxWidth(widths[c])
+		printASCIIHyphens(w + 2)
 	}
 	println("\xe2\x94\xa4")
 }
 
-func duckboxPrintRuleBottom(alloc mem.Allocator, widths []int, cols int) {
+func duckboxPrintRuleBottom(widths []int, cols int) {
 	print("\xe2\x94\x94")
 	for c := 0; c < cols; c++ {
 		if c > 0 {
 			print("\xe2\x94\xb4")
 		}
-		dash := strings.Repeat(alloc, "-", widths[c]+2)
-		print(dash)
-		mem.FreeString(alloc, dash)
+		w := clampDuckboxWidth(widths[c])
+		printASCIIHyphens(w + 2)
 	}
 	println("\xe2\x94\x98")
 }
 
 func duckboxPadPrint(s string, w int, align byte) {
+	w = clampDuckboxWidth(w)
 	if len(s) > w {
 		s = previewStr(s, w)
 	}
 	pad := w - len(s)
+	if pad < 0 {
+		pad = 0
+	}
+	if pad > maxDuckboxColWidth {
+		pad = maxDuckboxColWidth
+	}
 	switch align {
 	case 'r':
 		for i := 0; i < pad; i++ {
@@ -658,9 +751,10 @@ func duckboxIsNumericType(t duckdb.ColType) bool {
 
 // printResultDuckbox matches DuckDB CLI duckbox: rule, names, centered types, sep, rows (nums right-aligned), bottom.
 func printResultDuckbox(alloc mem.Allocator, res *duckdb.Result, rows, cols int) {
-	widths := computeDuckboxWidths(alloc, res, rows, cols)
+	widths := make([]int, cols)
+	computeDuckboxWidths(alloc, res, rows, cols, widths)
 
-	duckboxPrintRuleTop(alloc, widths, cols)
+	duckboxPrintRuleTop(widths, cols)
 
 	print("\xe2\x94\x82")
 	for c := 0; c < cols; c++ {
@@ -669,7 +763,7 @@ func printResultDuckbox(alloc mem.Allocator, res *duckdb.Result, rows, cols int)
 		if err != nil {
 			nm = "?"
 		}
-		label := previewStr(nm, 512)
+		label := previewStr(nm, maxDuckboxColWidth)
 		duckboxPadPrint(label, widths[c], 'l')
 		print(" ")
 		print("\xe2\x94\x82")
@@ -690,7 +784,7 @@ func printResultDuckbox(alloc mem.Allocator, res *duckdb.Result, rows, cols int)
 	}
 	println()
 
-	duckboxPrintRuleSep(alloc, widths, cols)
+	duckboxPrintRuleSep(widths, cols)
 
 	for r := 0; r < rows; r++ {
 		print("\xe2\x94\x82")
@@ -713,7 +807,7 @@ func printResultDuckbox(alloc mem.Allocator, res *duckdb.Result, rows, cols int)
 		println()
 	}
 
-	duckboxPrintRuleBottom(alloc, widths, cols)
+	duckboxPrintRuleBottom(widths, cols)
 }
 
 func printResultCSV(alloc mem.Allocator, res *duckdb.Result, rows, cols int) {
@@ -855,9 +949,14 @@ func printResultColumn(alloc mem.Allocator, res *duckdb.Result, rows, cols int) 
 		print(name)
 	}
 	println()
-	sep := strings.Repeat(alloc, "-", 8*cols)
-	println(sep)
-	mem.FreeString(alloc, sep)
+	sepLen := 8 * cols
+	if sepLen > dashSegmentMax {
+		sepLen = dashSegmentMax
+	}
+	for i := 0; i < sepLen; i++ {
+		print("-")
+	}
+	println()
 
 	for r := 0; r < rows; r++ {
 		for c := 0; c < cols; c++ {
@@ -875,7 +974,8 @@ func printResultColumn(alloc mem.Allocator, res *duckdb.Result, rows, cols int) 
 }
 
 func printResultTable(alloc mem.Allocator, res *duckdb.Result, rows, cols int, markdown bool) {
-	widths := computeColumnWidths(alloc, res, rows, cols)
+	widths := make([]int, cols)
+	computeColumnWidths(alloc, res, rows, cols, widths)
 
 	for c := 0; c < cols; c++ {
 		print("|")
@@ -884,7 +984,7 @@ func printResultTable(alloc mem.Allocator, res *duckdb.Result, rows, cols int, m
 		if err != nil {
 			nm = "?"
 		}
-		label := previewStr(nm, 512)
+		label := previewStr(nm, maxDuckboxColWidth)
 		print(label)
 		for p := len(label); p < widths[c]; p++ {
 			print(" ")
@@ -895,16 +995,17 @@ func printResultTable(alloc mem.Allocator, res *duckdb.Result, rows, cols int, m
 
 	for c := 0; c < cols; c++ {
 		print("|")
-		nd := widths[c] + 2
-		dash := strings.Repeat(alloc, "-", nd)
+		nd := clampDuckboxWidth(widths[c]) + 2
+		if nd > dashSegmentMax {
+			nd = dashSegmentMax
+		}
 		if markdown {
 			print("-")
-			print(dash)
+			printASCIIHyphens(nd)
 			print("-")
 		} else {
-			print(dash)
+			printASCIIHyphens(nd)
 		}
-		mem.FreeString(alloc, dash)
 	}
 	println("|")
 
@@ -913,8 +1014,9 @@ func printResultTable(alloc mem.Allocator, res *duckdb.Result, rows, cols int, m
 			print("|")
 			print(" ")
 			s, fr := formatCell(alloc, res, r, c)
-			print(s)
-			for p := len(s); p < widths[c]; p++ {
+			disp := previewStr(s, widths[c])
+			print(disp)
+			for p := len(disp); p < widths[c]; p++ {
 				print(" ")
 			}
 			print(" ")
@@ -933,7 +1035,10 @@ func previewStr(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "..."
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 func csvEscape(s string) string {
@@ -985,6 +1090,18 @@ func formatCell(alloc mem.Allocator, res *duckdb.Result, r, c int) (string, bool
 		var buf [64]byte
 		tmp := strconv.FormatFloat(buf[:0], v, 'g', -1, 64)
 		out := strings.Clone(alloc, tmp)
+		return out, true
+	case duckdb.ColVarchar, duckdb.ColBlob, duckdb.ColStringLiteral:
+		out, e := res.StringCopy(alloc, r, c)
+		if e != nil {
+			return "?", false
+		}
+		const maxCell = 4096
+		if len(out) > maxCell {
+			mem.FreeString(alloc, out)
+			out = strings.Clone(alloc, "<value too long>")
+			return out, true
+		}
 		return out, true
 	default:
 		// DuckDB sometimes reports literal / numeric columns with types we do not map;
