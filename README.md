@@ -51,7 +51,7 @@ See `-help`. Common cases:
 
 So emits C; fully static linking depends on a static `libduckdb` and your platform.
 
-Published **GitHub Releases** include CI-built Linux **x86_64** and **arm64** binaries (see `.github/workflows/release.yml`): CI unpacks DuckDB’s **`static-libs-linux-*.zip`** (many `lib*.a` archives, not only `libduckdb_static.a`) and links them with `-Wl,--start-group` … `-Wl,--end-group`, plus `-static-libgcc`/`-static-libstdc++`. The C library (`libc`) stays dynamically linked unless you use a musl or fully `-static` toolchain yourself.
+Published **GitHub Releases** include CI-built **Linux** (x86_64, arm64) and **macOS** (amd64 or arm64, matches the `macos-latest` runner) binaries; see `.github/workflows/release.yml`. CI unpacks DuckDB’s **`static-libs-*.zip`** (many `lib*.a` archives, not only `libduckdb_static.a`). On Linux, GNU `ld` uses `-Wl,--start-group` … `-Wl,--end-group` and `-static-libgcc`/`-static-libstdc++`. On macOS, Apple’s linker uses **`-Wl,-force_load`** per archive (see `Makefile`). The system C/C++ runtime and frameworks stay dynamic as usual on each OS.
 
 ## License
 

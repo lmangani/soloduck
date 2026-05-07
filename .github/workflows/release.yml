@@ -1,4 +1,4 @@
-# Build Linux release binaries (amd64 + arm64) when a GitHub Release is published.
+# Linux + macOS release binaries when a GitHub Release is published.
 # DuckDB’s standalone libduckdb_static.a is incomplete; use official static-libs-*.zip (all lib*.a).
 
 name: Release
@@ -65,6 +65,72 @@ jobs:
         run: |
           tag="${{ github.event.release.tag_name }}"
           out="soloduck-${tag}-linux-${{ matrix.arch }}"
+          cp soloduck "$out"
+          echo "asset=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.name.outputs.asset }}
+
+  macos:
+    name: macOS ${{ steps.arch.outputs.name }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout (with Solod submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: solod/go.sum
+
+      - name: Map runner CPU to DuckDB static-libs bundle
+        id: arch
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              echo "duck_arch=arm64" >> "$GITHUB_OUTPUT"
+              echo "name=arm64 (Apple silicon)" >> "$GITHUB_OUTPUT"
+              ;;
+            x86_64)
+              echo "duck_arch=amd64" >> "$GITHUB_OUTPUT"
+              echo "name=amd64 (Intel)" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "unsupported uname -m=$(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Install DuckDB static-libs bundle (duckdb.h + all lib*.a)
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/duckdb/include" "${RUNNER_TEMP}/duckdb/lib"
+          curl -fsSL -o /tmp/static-libs.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/static-libs-osx-${{ steps.arch.outputs.duck_arch }}.zip"
+          unzip -q -o /tmp/static-libs.zip -d "${RUNNER_TEMP}/duckdb-staging"
+          mv "${RUNNER_TEMP}/duckdb-staging/duckdb.h" "${RUNNER_TEMP}/duckdb/include/"
+          mv "${RUNNER_TEMP}/duckdb-staging/"*.a "${RUNNER_TEMP}/duckdb/lib/"
+          rm -rf "${RUNNER_TEMP}/duckdb-staging"
+
+      - name: Build (static link libduckdb; clang + force_load — see Makefile)
+        env:
+          DUCK_PREFIX: ${{ runner.temp }}/duckdb
+          DUCK_LINK_STATIC: "1"
+        run: make clean build
+
+      - name: Strip binary
+        run: strip soloduck
+
+      - name: Package artifact name
+        id: name
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          out="soloduck-${tag}-darwin-${{ steps.arch.outputs.duck_arch }}"
           cp soloduck "$out"
           echo "asset=$out" >> "$GITHUB_OUTPUT"
 

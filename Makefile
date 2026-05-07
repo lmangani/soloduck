@@ -12,7 +12,7 @@
 #
 # Static link: use DuckDB’s “static-libs” release zip (all lib*.a under lib/ + duckdb.h).
 #   make DUCK_LINK_STATIC=1 DUCK_PREFIX=/path/to/prefix
-# See: https://github.com/duckdb/duckdb/releases (static-libs-linux-*.zip)
+# See: https://github.com/duckdb/duckdb/releases (static-libs-*.zip)
 
 SOLID ?= ./solod
 GEN ?= gen
@@ -20,13 +20,19 @@ DUCK_PREFIX ?= $(shell brew --prefix duckdb 2>/dev/null)
 DUCK_LINK_STATIC ?= 0
 RPATH ?= -Wl,-rpath,$(DUCK_PREFIX)/lib
 CSRCS = $(shell find $(GEN) -name '*.c' 2>/dev/null)
-# All vendored archives (DuckDB splits symbols across many .a files; --start-group resolves cycles).
+UNAME_S := $(shell uname -s)
+# All vendored archives (DuckDB splits symbols across many .a files).
 DUCK_STATIC_ARCHIVES = $(sort $(wildcard $(DUCK_PREFIX)/lib/lib*.a))
 
 ifeq ($(DUCK_LINK_STATIC),1)
   DUCK_RPATH :=
-  DUCK_LD_LIBS = -Wl,--start-group $(DUCK_STATIC_ARCHIVES) -Wl,--end-group
-  DUCK_SYS_LIBS := -lm -lpthread -ldl -lstdc++ -lz
+  ifeq ($(UNAME_S),Darwin)
+    DUCK_LD_LIBS := $(foreach lib,$(DUCK_STATIC_ARCHIVES),-Wl,-force_load,$(lib))
+    DUCK_SYS_LIBS := -lm -lz -lc++ -lpthread -framework CoreFoundation -framework SystemConfiguration
+  else
+    DUCK_LD_LIBS := -Wl,--start-group $(DUCK_STATIC_ARCHIVES) -Wl,--end-group
+    DUCK_SYS_LIBS := -lm -lpthread -ldl -lstdc++ -lz
+  endif
 else
   DUCK_RPATH := $(RPATH)
   DUCK_LD_LIBS := -L$(DUCK_PREFIX)/lib -lduckdb
