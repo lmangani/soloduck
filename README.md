@@ -1,10 +1,10 @@
-# SoloDuckDB (`soloduck`)
+# SoloDuckDB CLI
 
 Interactive **DuckDB** shell implemented in **[Solod](https://github.com/solod-dev/solod)** (So) and linked against **libduckdb**. 
 
-> **Experimental research code.** SoloDuckDB is a proof-of-concept to explore embedding DuckDB behind a Solod-compiled CLI. It is **not** a supported product, **not** audited for security or correctness, and **not** suitable for production workloads. Prefer the [official DuckDB CLI](https://duckdb.org/docs/stable/clients/cli/overview) for anything that matters.
+> **Experimental research code.** SoloDuckDB is a proof-of-concept to explore embedding DuckDB with Solod. It is **not** a supported project, **not** audited for security or correctness, and **not** suitable for production workloads. Prefer the [official DuckDB CLI](https://duckdb.org/docs/stable/clients/cli/overview) for anything that matters.
 
-This repository is **self-contained**: it vendors the compiler/stdlib as a **git submodule** (`solod` → [solod-dev/solod](https://github.com/solod-dev/solod)) and ships the DuckDB C bindings in **`duckdb/`**. No fork of Solod is required.
+This repository is **self-contained**: it vendors the compiler/stdlib (`solod` → [solod-dev/solod](https://github.com/solod-dev/solod)) and bindings as **git submodules**
 
 CLI behavior is loosely aligned with the official DuckDB CLI (LTS):
 
