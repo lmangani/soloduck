@@ -9,12 +9,26 @@
 #
 # Override DuckDB install prefix if needed:
 #   make DUCK_PREFIX=/path/to/prefix
+#
+# Static link against libduckdb (release zip layout: lib/libduckdb_static.a):
+#   make DUCK_LINK_STATIC=1 DUCK_PREFIX=/path/to/prefix
 
 SOLID ?= ./solod
 GEN ?= gen
 DUCK_PREFIX ?= $(shell brew --prefix duckdb 2>/dev/null)
+DUCK_LINK_STATIC ?= 0
 RPATH ?= -Wl,-rpath,$(DUCK_PREFIX)/lib
 CSRCS = $(shell find $(GEN) -name '*.c' 2>/dev/null)
+
+ifeq ($(DUCK_LINK_STATIC),1)
+  DUCK_RPATH :=
+  DUCK_LD_LIBS := $(DUCK_PREFIX)/lib/libduckdb_static.a
+  DUCK_SYS_LIBS := -lm -lpthread -ldl -lstdc++
+else
+  DUCK_RPATH := $(RPATH)
+  DUCK_LD_LIBS := -L$(DUCK_PREFIX)/lib -lduckdb
+  DUCK_SYS_LIBS := -lm
+endif
 
 .PHONY: translate clean build all
 
@@ -31,7 +45,7 @@ build: translate
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -Werror -Wno-shadow \
 		-I$(CURDIR)/$(GEN) -I$(DUCK_PREFIX)/include \
 		$(CSRCS) -o soloduck \
-		-L$(DUCK_PREFIX)/lib -lduckdb $(RPATH) $(LDFLAGS) -lm
+		$(LDFLAGS) $(DUCK_LD_LIBS) $(DUCK_RPATH) $(DUCK_SYS_LIBS)
 
 clean:
 	rm -rf $(GEN) soloduck
