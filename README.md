@@ -1,6 +1,6 @@
 # SoloDuckDB (`soloduck`)
 
-Interactive **DuckDB** shell implemented in **[Solod](https://github.com/solod-dev/solod)** (So) and linked against **libduckdb**. This repository builds the **`soloduck`** binary.
+Interactive **DuckDB** shell implemented in **[Solod](https://github.com/solod-dev/solod)** (So) and linked against **libduckdb**. 
 
 > **Experimental research code.** SoloDuckDB is a proof-of-concept to explore embedding DuckDB behind a Solod-compiled CLI. It is **not** a supported product, **not** audited for security or correctness, and **not** suitable for production workloads. Prefer the [official DuckDB CLI](https://duckdb.org/docs/stable/clients/cli/overview) for anything that matters.
 
@@ -11,6 +11,16 @@ CLI behavior is loosely aligned with the official DuckDB CLI (LTS):
 - [CLI overview](https://duckdb.org/docs/stable/clients/cli/overview)
 - [Arguments](https://duckdb.org/docs/stable/clients/cli/arguments)
 - [Dot commands](https://duckdb.org/docs/stable/clients/cli/dot_commands)
+
+```
+% soloduck -c "SELECT version()"
+┌-------------┐
+│ "version"() │
+│   varchar   │
+├-------------┤
+│ v1.5.2      │
+└-------------┘
+```
 
 ## Build
 
@@ -52,9 +62,9 @@ One-shot SQL (same idea as official `duckdb -c`):
 ./soloduck :memory: 'SELECT 42 AS n'
 ```
 
-- **Interactive REPL** (no `-c` and no SQL argument): prompt `D`, type SQL ending with **`;`** then **Enter**; dot-commands (`.help`, `.mode`, `.open`, `.read`, …). Input uses the in-repo **`replfd`** package (same idea as **`duckdb/`**): an **`io.Reader`** on fd **0** implemented with **`read(2)`**, wrapped by **`bufio.Reader.ReadString('\\n')`**. That avoids libc **`FILE`** full-buffering on TTYs that can stall line-oriented reads. **`replfd.FlushStdout()`** runs after each prompt so **`print("D ")`** is visible before **`read`** blocks. Use **`-batch`** when stdin is a pipe or file script (batch mode still uses **`os.Stdin`** / **`fread`**).
+- **Interactive REPL** (no `-c` and no SQL argument)
 - **`-batch`**: read stdin as a script with no prompts (pipes and files).
-- **Output modes**: `-csv`, `-json`, or `.mode …`. Default **`duckbox`** tries to mirror the official CLI table layout (UTF-8 box drawing, column names, physical type row, separator, data rows; numeric columns right-aligned). Use `.mode ascii` for plain `|` tables without the type row.
+- **Output modes**: `-csv`, `-json`, or `.mode …`. Default **`duckbox`** tries to mirror the official CLI layout
 
 ## Benchmarks (startup + first query)
 
@@ -82,8 +92,6 @@ Query: 'SELECT 1;'
   ratio (soloduck / duckdb mean wall time): 1.05x
 ```
 
-Lower milliseconds are faster. The script measures wall time only; CPU time is not split between DuckDB and the Solod runtime.
-
 ## CI
 
 Pushes and pull requests against **`main`** run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Linux (**amd64** + **arm64**) and **macOS** builds using the same DuckDB **static-libs** bundles as [releases](.github/workflows/release.yml), then `./soloduck -version`.
@@ -102,10 +110,5 @@ Pushes and pull requests against **`main`** run [`.github/workflows/ci.yml`](.gi
 
 ## Static binaries
 
-So emits C; fully static linking depends on a static `libduckdb` and your platform.
+`So` emits `C`; fully static linking depends on a static `libduckdb` and your platform.
 
-Published **GitHub Releases** include CI-built **Linux** (x86_64, arm64) and **macOS** (amd64 or arm64, matches the `macos-latest` runner) binaries; see `.github/workflows/release.yml`. CI unpacks DuckDB’s **`static-libs-*.zip`** (many `lib*.a` archives, not only `libduckdb_static.a`). On Linux, GNU `ld` uses `-Wl,--start-group` … `-Wl,--end-group` and `-static-libgcc`/`-static-libstdc++`. On macOS, Apple’s linker uses **`-Wl,-force_load`** per archive (see `Makefile`). The system C/C++ runtime and frameworks stay dynamic as usual on each OS.
-
-## License
-
-Upstream **Solod** is BSD-3-Clause — see `solod/LICENSE`. Combine with your choice for **soloduck**-specific files in this repository.
