@@ -1,5 +1,5 @@
-# Build Linux release binaries (amd64 + arm64) when a GitHub Release is published,
-# link DuckDB via vendored libduckdb_static.a from official DuckDB releases, upload assets.
+# Build Linux release binaries (amd64 + arm64) when a GitHub Release is published.
+# DuckDB’s standalone libduckdb_static.a is incomplete; use official static-libs-*.zip (all lib*.a).
 
 name: Release
 
@@ -39,14 +39,16 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: solod/go.sum
 
-      - name: Install DuckDB headers + static library
+      - name: Install DuckDB static-libs bundle (duckdb.h + all lib*.a)
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/duckdb/include" "${RUNNER_TEMP}/duckdb/lib"
-          curl -sL -o /tmp/libduckdb.zip \
-            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-${{ matrix.arch }}.zip"
-          unzip -o /tmp/libduckdb.zip -d "${RUNNER_TEMP}/duckdb/lib"
-          mv "${RUNNER_TEMP}/duckdb/lib/duckdb.h" "${RUNNER_TEMP}/duckdb/include/"
+          curl -fsSL -o /tmp/static-libs.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/static-libs-linux-${{ matrix.arch }}.zip"
+          unzip -q -o /tmp/static-libs.zip -d "${RUNNER_TEMP}/duckdb-staging"
+          mv "${RUNNER_TEMP}/duckdb-staging/duckdb.h" "${RUNNER_TEMP}/duckdb/include/"
+          mv "${RUNNER_TEMP}/duckdb-staging/"*.a "${RUNNER_TEMP}/duckdb/lib/"
+          rm -rf "${RUNNER_TEMP}/duckdb-staging"
 
       - name: Build (static link libduckdb)
         env:

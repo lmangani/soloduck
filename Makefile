@@ -10,8 +10,9 @@
 # Override DuckDB install prefix if needed:
 #   make DUCK_PREFIX=/path/to/prefix
 #
-# Static link against libduckdb (release zip layout: lib/libduckdb_static.a):
+# Static link: use DuckDB’s “static-libs” release zip (all lib*.a under lib/ + duckdb.h).
 #   make DUCK_LINK_STATIC=1 DUCK_PREFIX=/path/to/prefix
+# See: https://github.com/duckdb/duckdb/releases (static-libs-linux-*.zip)
 
 SOLID ?= ./solod
 GEN ?= gen
@@ -19,11 +20,13 @@ DUCK_PREFIX ?= $(shell brew --prefix duckdb 2>/dev/null)
 DUCK_LINK_STATIC ?= 0
 RPATH ?= -Wl,-rpath,$(DUCK_PREFIX)/lib
 CSRCS = $(shell find $(GEN) -name '*.c' 2>/dev/null)
+# All vendored archives (DuckDB splits symbols across many .a files; --start-group resolves cycles).
+DUCK_STATIC_ARCHIVES = $(sort $(wildcard $(DUCK_PREFIX)/lib/lib*.a))
 
 ifeq ($(DUCK_LINK_STATIC),1)
   DUCK_RPATH :=
-  DUCK_LD_LIBS := $(DUCK_PREFIX)/lib/libduckdb_static.a
-  DUCK_SYS_LIBS := -lm -lpthread -ldl -lstdc++
+  DUCK_LD_LIBS = -Wl,--start-group $(DUCK_STATIC_ARCHIVES) -Wl,--end-group
+  DUCK_SYS_LIBS := -lm -lpthread -ldl -lstdc++ -lz
 else
   DUCK_RPATH := $(RPATH)
   DUCK_LD_LIBS := -L$(DUCK_PREFIX)/lib -lduckdb
@@ -42,6 +45,9 @@ translate:
 build: translate
 	@test -n "$(DUCK_PREFIX)" || (echo "Install libduckdb or set DUCK_PREFIX."; exit 1)
 	@test -n "$(CSRCS)" || (echo "No generated C sources under $(GEN); translate failed?"; exit 1)
+	@if [ "$(DUCK_LINK_STATIC)" = 1 ] && [ -z "$(DUCK_STATIC_ARCHIVES)" ]; then \
+		echo "DUCK_LINK_STATIC=1 but no $(DUCK_PREFIX)/lib/lib*.a (use DuckDB static-libs-*.zip)."; exit 1; \
+	fi
 	$(CC) -O2 -g -std=gnu11 -Wall -Wextra -Werror -Wno-shadow -fno-strict-aliasing \
 		-I$(CURDIR)/$(GEN) -I$(DUCK_PREFIX)/include \
 		$(CSRCS) -o soloduck \
