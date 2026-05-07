@@ -5,6 +5,7 @@ package main
 
 import (
 	"github.com/lmangani/soloduck/duckdb"
+	"github.com/lmangani/soloduck/replfd"
 	"solod.dev/so/bufio"
 	"solod.dev/so/flag"
 	"solod.dev/so/io"
@@ -258,7 +259,8 @@ func readStdinAll(alloc mem.Allocator) string {
 
 func repl(db *duckdb.Conn, mode string) {
 	var alloc mem.Allocator
-	br := bufio.NewReader(alloc, os.Stdin)
+	// replfd.Stdin uses read(2) on fd 0 — avoids libc FILE full-buffering on ttys (see package doc).
+	br := bufio.NewReader(alloc, replfd.Ptr())
 	defer br.Free()
 
 	acc := strings.NewBuilder(alloc)
@@ -271,6 +273,7 @@ func repl(db *duckdb.Conn, mode string) {
 		} else {
 			print("  ")
 		}
+		replfd.FlushStdout()
 
 		raw, rerr := br.ReadString('\n')
 		if rerr != nil && rerr != io.EOF {
@@ -279,7 +282,9 @@ func repl(db *duckdb.Conn, mode string) {
 			os.Exit(1)
 		}
 
-		line := strings.TrimSuffix(strings.TrimSuffix(raw, "\n"), "\r")
+		// TrimSuffix views into raw; clone before freeing raw (Solod/C uses slice-backed strings).
+		stripped := strings.TrimSuffix(strings.TrimSuffix(raw, "\n"), "\r")
+		line := strings.Clone(alloc, stripped)
 		mem.FreeString(alloc, raw)
 
 		eof := rerr == io.EOF
@@ -287,6 +292,7 @@ func repl(db *duckdb.Conn, mode string) {
 
 		// EOF (e.g. Ctrl-D) with no pending statement: exit the REPL.
 		if eof && trim == "" && acc.Len() == 0 {
+			mem.FreeString(alloc, line)
 			println()
 			return
 		}
@@ -299,11 +305,13 @@ func repl(db *duckdb.Conn, mode string) {
 			if len(sql) > 0 && strings.HasSuffix(sql, ";") {
 				runSQL(*db, sql, m)
 			}
+			mem.FreeString(alloc, line)
 			println()
 			return
 		}
 
 		if acc.Len() == 0 && handleDot(db, trim, &m, alloc) {
+			mem.FreeString(alloc, line)
 			if eof {
 				println()
 				return
@@ -311,6 +319,7 @@ func repl(db *duckdb.Conn, mode string) {
 			continue
 		}
 		if acc.Len() == 0 && handleMeta(trim) {
+			mem.FreeString(alloc, line)
 			if eof {
 				println()
 				return
@@ -319,6 +328,7 @@ func repl(db *duckdb.Conn, mode string) {
 		}
 
 		if !writeLine(&acc, line) {
+			mem.FreeString(alloc, line)
 			os.Exit(1)
 		}
 		if strings.HasSuffix(trim, ";") {
@@ -326,6 +336,7 @@ func repl(db *duckdb.Conn, mode string) {
 			acc.Reset()
 			runSQL(*db, sql, m)
 		}
+		mem.FreeString(alloc, line)
 
 		// Last physical line had no trailing newline (EOF): nothing more to read.
 		if eof {

@@ -52,7 +52,7 @@ One-shot SQL (same idea as official `duckdb -c`):
 ./soloduck :memory: 'SELECT 42 AS n'
 ```
 
-- **Interactive REPL** (no `-c` and no SQL argument): prompt `D`, type SQL ending with **`;`** then **Enter**; dot-commands (`.help`, `.mode`, `.open`, `.read`, …). Lines are read with **`bufio.Reader.ReadString('\\n')`** on **`os.Stdin`** (same pattern as typical Go CLIs). Use **`-batch`** when stdin is a pipe or file script.
+- **Interactive REPL** (no `-c` and no SQL argument): prompt `D`, type SQL ending with **`;`** then **Enter**; dot-commands (`.help`, `.mode`, `.open`, `.read`, …). Input uses the in-repo **`replfd`** package (same idea as **`duckdb/`**): an **`io.Reader`** on fd **0** implemented with **`read(2)`**, wrapped by **`bufio.Reader.ReadString('\\n')`**. That avoids libc **`FILE`** full-buffering on TTYs that can stall line-oriented reads. **`replfd.FlushStdout()`** runs after each prompt so **`print("D ")`** is visible before **`read`** blocks. Use **`-batch`** when stdin is a pipe or file script (batch mode still uses **`os.Stdin`** / **`fread`**).
 - **`-batch`**: read stdin as a script with no prompts (pipes and files).
 - **Output modes**: `-csv`, `-json`, or `.mode …`. Default **`duckbox`** tries to mirror the official CLI table layout (UTF-8 box drawing, column names, physical type row, separator, data rows; numeric columns right-aligned). Use `.mode ascii` for plain `|` tables without the type row.
 
