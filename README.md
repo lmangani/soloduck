@@ -1,3 +1,5 @@
+<img width="200" height="200" alt="image" src="https://github.com/user-attachments/assets/55ddc237-5b36-4c5f-8f8e-a7552aa3e6fa" />
+
 # SoloDuckDB CLI
 
 Interactive **DuckDB** shell implemented in **[Solod](https://github.com/solod-dev/solod)** (So) and linked against **libduckdb**. 
@@ -74,13 +76,7 @@ To compare **process startup + one `-batch -c` query + exit** between the offici
 python3 scripts/benchmark_init.py --runs 25 --warmup 2
 ```
 
-Optional environment variables: `DUCKDB_CLI`, `SOLODUCK`. Example:
-
-```bash
-DUCKDB_CLI=/opt/homebrew/bin/duckdb SOLODUCK=./soloduck python3 scripts/benchmark_init.py
-```
-
-Example output (numbers vary by machine and load):
+Reference benchmark (numbers vary by machine and load):
 
 ```
 Wall time per fresh process (startup + query + exit).
@@ -110,5 +106,5 @@ Pushes and pull requests against **`main`** run [`.github/workflows/ci.yml`](.gi
 
 ## Static binaries
 
-`So` emits `C`; fully static linking depends on a static `libduckdb` and your platform.
+[Solod](https://github.com/solod-dev/solod) emits `C`; fully static linking depends on a static `libduckdb` and your platform.
 
