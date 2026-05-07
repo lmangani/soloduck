@@ -4,13 +4,13 @@ go 1.26
 
 require solod.dev v0.0.0
 
-// solod.dev is the module path for github.com/lmangani/solod (or your fork).
-// Point "replace" at a checkout that includes so/duckdb on main.
+// Stock Solod (no DuckDB package): https://github.com/solod-dev/solod
+// The DuckDB C shim lives in ./duckdb in this repository.
 //
-// Layout A — submodule inside solod (replace points at repo root):
+// Layout A — submodule soloduck inside a solod checkout:
 replace solod.dev => ../
 
-// Layout B — sibling directories solod/ and soloduck/ (uncomment this instead):
+// Layout B — sibling clones solod/ + soloduck/ (uncomment):
 // replace solod.dev => ../solod
 //
-// For layout B, build with: make SOLID=../solod
+// Layout B build: make SOLID=../solod

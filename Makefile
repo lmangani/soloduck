@@ -1,6 +1,6 @@
 # Build soloduck: translate with Solod (So), then link against libduckdb.
 #
-# Requires a Solod checkout whose main branch includes so/duckdb (see README).
+# Requires stock Solod (https://github.com/solod-dev/solod). DuckDB shim is ./duckdb.
 #
 # Layout A (submodule): default SOLID=..  → parent solod repo root.
 # Layout B (sibling):   make SOLID=../solod

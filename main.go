@@ -4,8 +4,8 @@
 package main
 
 import (
+	"github.com/lmangani/soloduck/duckdb"
 	"solod.dev/so/bufio"
-	"solod.dev/so/duckdb"
 	"solod.dev/so/flag"
 	"solod.dev/so/io"
 	"solod.dev/so/mem"
