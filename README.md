@@ -35,7 +35,7 @@ Pushes and pull requests against **`main`** run [`.github/workflows/ci.yml`](.gi
 
 | Path | Purpose |
 |------|--------|
-| `solod/` | Submodule: upstream Solod (`so translate`, `so/*` stdlib). |
+| `solod/` | Submodule: upstream Solod (`so translate`, `so/*` stdlib). Includes `LICENSE` (BSD-3-Clause). |
 | `duckdb/` | Solod package wrapping DuckDB’s C API (`duckdb.h`). |
 | `main.go` | CLI entrypoint. |
 | `gen/` | Generated C from `make translate` (removed by `make clean`). |
@@ -51,6 +51,8 @@ See `-help`. Common cases:
 ./soloduck :memory: 'SELECT 42 AS n'
 ```
 
+Run with no `-c` / second-arg SQL to open the **interactive shell**: type SQL ending with `;`; default **`duckbox`** output follows the DuckDB CLI layout (UTF-8 box borders, column names, **physical type** row, separator, then rows — numeric columns **right-aligned**). Use `-batch` for stdin scripts (`soloduck -batch < script.sql`). `.mode ascii` keeps plain `|` tables without the type row.
+
 ## Static binaries
 
 So emits C; fully static linking depends on a static `libduckdb` and your platform.
@@ -59,4 +61,4 @@ Published **GitHub Releases** include CI-built **Linux** (x86_64, arm64) and **m
 
 ## License
 
-Combine Solod’s BSD-3-Clause with your choice for this repo.
+Upstream **Solod** is BSD-3-Clause — see `solod/LICENSE`. Combine with your choice for **soloduck**-specific files in this repository.

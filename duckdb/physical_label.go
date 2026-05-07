@@ -1,0 +1,92 @@
+package duckdb
+
+// PhysicalTypeLabel returns a short DuckDB-CLI-style physical type name for table headers
+// (e.g. int64, varchar), aligned with interactive duckbox output.
+func PhysicalTypeLabel(t ColType) string {
+	switch t {
+	case ColBoolean:
+		return "boolean"
+	case ColTinyInt:
+		return "tinyint"
+	case ColSmallInt:
+		return "smallint"
+	case ColInteger:
+		return "int32"
+	case ColBigInt:
+		return "int64"
+	case ColUTinyInt:
+		return "utinyint"
+	case ColUSmallInt:
+		return "usmallint"
+	case ColUInteger:
+		return "uint32"
+	case ColUBigInt:
+		return "uint64"
+	case ColHugeInt:
+		return "hugeint"
+	case ColUHugeInt:
+		return "uhugeint"
+	case ColFloat:
+		return "float"
+	case ColDouble:
+		return "double"
+	case ColVarchar:
+		return "varchar"
+	case ColBlob:
+		return "blob"
+	case ColDate:
+		return "date"
+	case ColTime:
+		return "time"
+	case ColTimestamp:
+		return "timestamp"
+	case ColTimestampS:
+		return "timestamp_s"
+	case ColTimestampMS:
+		return "timestamp_ms"
+	case ColTimestampNS:
+		return "timestamp_ns"
+	case ColTimestampTZ:
+		return "timestamp_tz"
+	case ColTimeTZ:
+		return "time_tz"
+	case ColInterval:
+		return "interval"
+	case ColDecimal:
+		return "decimal"
+	case ColUUID:
+		return "uuid"
+	case ColEnum:
+		return "enum"
+	case ColList:
+		return "list"
+	case ColStruct:
+		return "struct"
+	case ColMap:
+		return "map"
+	case ColArray:
+		return "array"
+	case ColUnion:
+		return "union"
+	case ColBit:
+		return "bit"
+	case ColAny:
+		return "any"
+	case ColBigNum:
+		return "bignum"
+	case ColSQLNull:
+		return "null"
+	case ColStringLiteral:
+		return "varchar"
+	case ColIntegerLiteral:
+		return "int64"
+	case ColTimeNS:
+		return "time_ns"
+	case ColGeometry:
+		return "geometry"
+	case ColInvalid:
+		return "unknown"
+	default:
+		return "unknown"
+	}
+}

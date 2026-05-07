@@ -30,6 +30,7 @@ func main() {
 		csvFlag  bool
 		jsonFlag bool
 		readonly bool
+		batch    bool
 	)
 	fs := flag.NewFlagSet("soloduck", flag.ExitOnError)
 	fs.BoolVar(&help, "help", false, "show help and exit")
@@ -38,6 +39,7 @@ func main() {
 	fs.BoolVar(&csvFlag, "csv", false, "set output mode to csv (non-interactive / initial REPL mode)")
 	fs.BoolVar(&jsonFlag, "json", false, "set output mode to json")
 	fs.BoolVar(&readonly, "readonly", false, "request read-only open (not fully wired; emits a warning)")
+	fs.BoolVar(&batch, "batch", false, "read SQL from stdin with no prompts (pipes and scripts)")
 	_ = fs.Parse(os.Args[1:])
 
 	if help {
@@ -79,6 +81,18 @@ func main() {
 		os.Exit(0)
 	}
 
+	if batch {
+		if fs.NArg() >= 2 {
+			println("soloduck: -batch allows at most one argument (database path)")
+			os.Exit(1)
+		}
+		var alloc mem.Allocator
+		script := readStdinAll(alloc)
+		processScript(&db, script, &initialMode, alloc)
+		mem.FreeString(alloc, script)
+		os.Exit(0)
+	}
+
 	printBanner(dbPath)
 	repl(&db, initialMode)
 	os.Exit(0)
@@ -97,23 +111,55 @@ func printUsage() {
 	println("  -c SQL         run SQL and exit (-s in official CLI; same idea)")
 	println("  -csv           initial output mode: csv")
 	println("  -json          initial output mode: json")
+	println("  -batch          run SQL from stdin (no interactive prompt; use with pipes)")
 	println("  -readonly      reserved (read-only open not implemented)")
 	println("")
 	println("With no FILENAME, connects to an in-memory database (:memory:).")
 	println("Optional second argument SQL runs once and exits (non-interactive).")
+	println("Otherwise starts an interactive SQL shell: type statements ending with `;`,")
+	println("see SELECT results as boxed tables (duckbox). Use `.mode ascii` for plain | pipes.")
 	println("Dot-commands: .help  .exit  .quit  .open [. --readonly] [PATH]  .read FILE")
 	println("              .tables  .schema [TABLE]  .mode MODE  .complete [PREFIX]")
 }
 
 func printBanner(dbPath string) {
-	println("DuckDB " + duckdb.LibraryVersion() + " (soloduck — Solod CLI demo)")
-	println(`Enter ".help" for usage hints.`)
+	println("DuckDB " + duckdb.LibraryVersion() + " (soloduck - Solod CLI demo)")
+	println("Interactive SQL: statements end with `;`; SELECT results print as tables (duckbox).")
+	println(`Enter ".help" for dot commands and .mode (csv, json, markdown, ascii, ...).`)
 	if dbPath == ":memory:" {
 		println("Connected to a transient in-memory database.")
 		println(`Use ".open FILENAME" to reopen on a persistent database.`)
 	} else {
 		println("Connected to database at " + dbPath)
 	}
+}
+
+// readStdinAll reads all of stdin for -batch (clone so builder buffers can be freed).
+func readStdinAll(alloc mem.Allocator) string {
+	br := bufio.NewReader(alloc, os.Stdin)
+	defer br.Free()
+	acc := strings.NewBuilder(alloc)
+	for {
+		line, err := br.ReadString('\n')
+		if len(line) > 0 {
+			_, werr := acc.WriteString(line)
+			if werr != nil {
+				break
+			}
+		}
+		mem.FreeString(alloc, line)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			println("stdin read failed")
+			break
+		}
+	}
+	raw := acc.String()
+	out := strings.Clone(alloc, raw)
+	acc.Free()
+	return out
 }
 
 func repl(db *duckdb.Conn, mode string) {
@@ -232,7 +278,8 @@ func handleDot(db *duckdb.Conn, line string, mode *string, alloc mem.Allocator) 
 		}
 	case ".mode":
 		if len(arg) == 0 {
-			println("usage: .mode csv|json|markdown|duckbox|column|line|table")
+			println("usage: .mode csv|json|markdown|duckbox|ascii|column|line|table")
+			println("(duckbox = Unicode tables like the DuckDB CLI; ascii = plain | tables)")
 			println("(see https://duckdb.org/docs/lts/clients/cli/output_formats )")
 		} else {
 			nm := normalizeMode(arg)
@@ -327,7 +374,7 @@ func processScript(db *duckdb.Conn, content string, mode *string, alloc mem.Allo
 
 func normalizeMode(arg string) string {
 	switch arg {
-	case "csv", "json", "markdown", "duckbox", "column":
+	case "csv", "json", "markdown", "duckbox", "column", "ascii":
 		return arg
 	}
 	var alloc mem.Allocator
@@ -342,8 +389,10 @@ func normalizeMode(arg string) string {
 		return "markdown"
 	case "md":
 		return "markdown"
-	case "duckbox", "box", "table", "ascii":
+	case "duckbox", "box", "table":
 		return "duckbox"
+	case "ascii", "pipes":
+		return "ascii"
 	case "column", "line", "list":
 		return "column"
 	default:
@@ -361,14 +410,14 @@ func split2(line string) (string, string) {
 }
 
 func printHelp() {
-	println(`Dot commands (subset — see https://duckdb.org/docs/lts/clients/cli/dot_commands ): `)
+	println(`Dot commands (subset - see https://duckdb.org/docs/lts/clients/cli/dot_commands ): `)
 	println(`  .help | .h`)
 	println(`  .exit | .quit | .q`)
-	println(`  .open [--readonly] [PATH]   (:memory: or empty PATH → in-memory)`)
+	println(`  .open [--readonly] [PATH]   (:memory: or empty PATH -> in-memory)`)
 	println(`  .read FILE                   run FILE like interactive input`)
 	println(`  .tables                      SHOW TABLES`)
 	println(`  .schema [TABLE]              DESCRIBE TABLE (or list tables)`)
-	println(`  .mode csv|json|markdown|duckbox|column|line|table`)
+	println(`  .mode csv|json|markdown|duckbox|ascii|column|line|table`)
 	println(`  .complete [PREFIX]           SQL keyword hints (not full CLI autocomplete)`)
 	println("")
 	println("Enter SQL ending with `;`. Without `;`, press Enter to continue on the next line.")
@@ -449,9 +498,222 @@ func printResult(alloc mem.Allocator, res *duckdb.Result, mode string) {
 		printResultTable(alloc, res, rows, cols, true)
 	case "column":
 		printResultColumn(alloc, res, rows, cols)
-	default:
+	case "ascii":
 		printResultTable(alloc, res, rows, cols, false)
+	case "duckbox":
+		printResultDuckbox(alloc, res, rows, cols)
+	default:
+		printResultDuckbox(alloc, res, rows, cols)
 	}
+}
+
+func computeColumnWidths(alloc mem.Allocator, res *duckdb.Result, rows, cols int) []int {
+	widths := make([]int, cols)
+	for c := 0; c < cols; c++ {
+		nm, err := res.ColumnName(c)
+		if err != nil {
+			nm = "?"
+		}
+		lw := len(previewStr(nm, 512))
+		if lw > widths[c] {
+			widths[c] = lw
+		}
+	}
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			s, fr := formatCell(alloc, res, r, c)
+			lw := len(s)
+			if lw > 4096 {
+				lw = 4096
+			}
+			if lw > widths[c] {
+				widths[c] = lw
+			}
+			if fr {
+				mem.FreeString(alloc, s)
+			}
+		}
+	}
+	return widths
+}
+
+// computeDuckboxWidths includes column names, physical type labels, and cells (DuckDB CLI duckbox).
+func computeDuckboxWidths(alloc mem.Allocator, res *duckdb.Result, rows, cols int) []int {
+	widths := make([]int, cols)
+	for c := 0; c < cols; c++ {
+		nm, err := res.ColumnName(c)
+		if err != nil {
+			nm = "?"
+		}
+		lw := len(previewStr(nm, 512))
+		if lw > widths[c] {
+			widths[c] = lw
+		}
+		typ, err := res.ColumnType(c)
+		tlab := "unknown"
+		if err == nil {
+			tlab = duckdb.PhysicalTypeLabel(typ)
+		}
+		if len(tlab) > widths[c] {
+			widths[c] = len(tlab)
+		}
+	}
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			s, fr := formatCell(alloc, res, r, c)
+			lw := len(s)
+			if lw > 4096 {
+				lw = 4096
+			}
+			if lw > widths[c] {
+				widths[c] = lw
+			}
+			if fr {
+				mem.FreeString(alloc, s)
+			}
+		}
+	}
+	return widths
+}
+
+func duckboxPrintRuleTop(alloc mem.Allocator, widths []int, cols int) {
+	print("\xe2\x94\x8c")
+	for c := 0; c < cols; c++ {
+		if c > 0 {
+			print("\xe2\x94\xac")
+		}
+		dash := strings.Repeat(alloc, "-", widths[c]+2)
+		print(dash)
+		mem.FreeString(alloc, dash)
+	}
+	println("\xe2\x94\x90")
+}
+
+func duckboxPrintRuleSep(alloc mem.Allocator, widths []int, cols int) {
+	print("\xe2\x94\x9c")
+	for c := 0; c < cols; c++ {
+		if c > 0 {
+			print("\xe2\x94\xbc")
+		}
+		dash := strings.Repeat(alloc, "-", widths[c]+2)
+		print(dash)
+		mem.FreeString(alloc, dash)
+	}
+	println("\xe2\x94\xa4")
+}
+
+func duckboxPrintRuleBottom(alloc mem.Allocator, widths []int, cols int) {
+	print("\xe2\x94\x94")
+	for c := 0; c < cols; c++ {
+		if c > 0 {
+			print("\xe2\x94\xb4")
+		}
+		dash := strings.Repeat(alloc, "-", widths[c]+2)
+		print(dash)
+		mem.FreeString(alloc, dash)
+	}
+	println("\xe2\x94\x98")
+}
+
+func duckboxPadPrint(s string, w int, align byte) {
+	if len(s) > w {
+		s = previewStr(s, w)
+	}
+	pad := w - len(s)
+	switch align {
+	case 'r':
+		for i := 0; i < pad; i++ {
+			print(" ")
+		}
+		print(s)
+	case 'c':
+		left := pad / 2
+		right := pad - left
+		for i := 0; i < left; i++ {
+			print(" ")
+		}
+		print(s)
+		for i := 0; i < right; i++ {
+			print(" ")
+		}
+	default:
+		print(s)
+		for i := 0; i < pad; i++ {
+			print(" ")
+		}
+	}
+}
+
+func duckboxIsNumericType(t duckdb.ColType) bool {
+	switch t {
+	case duckdb.ColTinyInt, duckdb.ColSmallInt, duckdb.ColInteger, duckdb.ColBigInt,
+		duckdb.ColUTinyInt, duckdb.ColUSmallInt, duckdb.ColUInteger, duckdb.ColUBigInt,
+		duckdb.ColHugeInt, duckdb.ColUHugeInt, duckdb.ColIntegerLiteral,
+		duckdb.ColFloat, duckdb.ColDouble, duckdb.ColDecimal, duckdb.ColBigNum:
+		return true
+	default:
+		return false
+	}
+}
+
+// printResultDuckbox matches DuckDB CLI duckbox: rule, names, centered types, sep, rows (nums right-aligned), bottom.
+func printResultDuckbox(alloc mem.Allocator, res *duckdb.Result, rows, cols int) {
+	widths := computeDuckboxWidths(alloc, res, rows, cols)
+
+	duckboxPrintRuleTop(alloc, widths, cols)
+
+	print("\xe2\x94\x82")
+	for c := 0; c < cols; c++ {
+		print(" ")
+		nm, err := res.ColumnName(c)
+		if err != nil {
+			nm = "?"
+		}
+		label := previewStr(nm, 512)
+		duckboxPadPrint(label, widths[c], 'l')
+		print(" ")
+		print("\xe2\x94\x82")
+	}
+	println()
+
+	print("\xe2\x94\x82")
+	for c := 0; c < cols; c++ {
+		print(" ")
+		typ, err := res.ColumnType(c)
+		tlab := "unknown"
+		if err == nil {
+			tlab = duckdb.PhysicalTypeLabel(typ)
+		}
+		duckboxPadPrint(tlab, widths[c], 'c')
+		print(" ")
+		print("\xe2\x94\x82")
+	}
+	println()
+
+	duckboxPrintRuleSep(alloc, widths, cols)
+
+	for r := 0; r < rows; r++ {
+		print("\xe2\x94\x82")
+		for c := 0; c < cols; c++ {
+			print(" ")
+			s, fr := formatCell(alloc, res, r, c)
+			typ, _ := res.ColumnType(c)
+			al := byte('l')
+			if duckboxIsNumericType(typ) {
+				al = 'r'
+			}
+			cell := previewStr(s, widths[c])
+			duckboxPadPrint(cell, widths[c], al)
+			print(" ")
+			print("\xe2\x94\x82")
+			if fr {
+				mem.FreeString(alloc, s)
+			}
+		}
+		println()
+	}
+
+	duckboxPrintRuleBottom(alloc, widths, cols)
 }
 
 func printResultCSV(alloc mem.Allocator, res *duckdb.Result, rows, cols int) {
@@ -537,7 +799,7 @@ func printJSONValue(alloc mem.Allocator, res *duckdb.Result, r, c int) {
 		}
 	case duckdb.ColTinyInt, duckdb.ColSmallInt, duckdb.ColInteger, duckdb.ColBigInt,
 		duckdb.ColUTinyInt, duckdb.ColUSmallInt, duckdb.ColUInteger, duckdb.ColUBigInt,
-		duckdb.ColHugeInt, duckdb.ColUHugeInt:
+		duckdb.ColHugeInt, duckdb.ColUHugeInt, duckdb.ColIntegerLiteral:
 		v, e := res.Int64(r, c)
 		if e != nil {
 			print("null")
@@ -613,27 +875,7 @@ func printResultColumn(alloc mem.Allocator, res *duckdb.Result, rows, cols int) 
 }
 
 func printResultTable(alloc mem.Allocator, res *duckdb.Result, rows, cols int, markdown bool) {
-	widths := make([]int, cols)
-	for c := 0; c < cols; c++ {
-		nm, err := res.ColumnName(c)
-		if err != nil {
-			nm = "?"
-		}
-		if len(nm) > widths[c] {
-			widths[c] = len(nm)
-		}
-	}
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			s, fr := formatCell(alloc, res, r, c)
-			if len(s) > widths[c] {
-				widths[c] = len(s)
-			}
-			if fr {
-				mem.FreeString(alloc, s)
-			}
-		}
-	}
+	widths := computeColumnWidths(alloc, res, rows, cols)
 
 	for c := 0; c < cols; c++ {
 		print("|")
@@ -642,8 +884,9 @@ func printResultTable(alloc mem.Allocator, res *duckdb.Result, rows, cols int, m
 		if err != nil {
 			nm = "?"
 		}
-		print(nm)
-		for p := len(nm); p < widths[c]; p++ {
+		label := previewStr(nm, 512)
+		print(label)
+		for p := len(label); p < widths[c]; p++ {
 			print(" ")
 		}
 		print(" ")
@@ -683,6 +926,16 @@ func printResultTable(alloc mem.Allocator, res *duckdb.Result, rows, cols int, m
 	}
 }
 
+func previewStr(s string, max int) string {
+	if max <= 0 {
+		max = 1
+	}
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
+}
+
 func csvEscape(s string) string {
 	if strings.IndexByte(s, ',') < 0 && strings.IndexByte(s, '"') < 0 && strings.IndexByte(s, '\n') < 0 {
 		return s
@@ -715,7 +968,7 @@ func formatCell(alloc mem.Allocator, res *duckdb.Result, r, c int) (string, bool
 		return "false", false
 	case duckdb.ColTinyInt, duckdb.ColSmallInt, duckdb.ColInteger, duckdb.ColBigInt,
 		duckdb.ColUTinyInt, duckdb.ColUSmallInt, duckdb.ColUInteger, duckdb.ColUBigInt,
-		duckdb.ColHugeInt, duckdb.ColUHugeInt:
+		duckdb.ColHugeInt, duckdb.ColUHugeInt, duckdb.ColIntegerLiteral:
 		v, e := res.Int64(r, c)
 		if e != nil {
 			return "?", false
@@ -734,9 +987,29 @@ func formatCell(alloc mem.Allocator, res *duckdb.Result, r, c int) (string, bool
 		out := strings.Clone(alloc, tmp)
 		return out, true
 	default:
+		// DuckDB sometimes reports literal / numeric columns with types we do not map;
+		// prefer typed accessors before varchar/string copy (avoids bogus huge strings).
+		if v, e := res.Int64(r, c); e == nil {
+			var buf [32]byte
+			tmp := strconv.FormatInt(buf[:0], v, 10)
+			out := strings.Clone(alloc, tmp)
+			return out, true
+		}
+		if v, e := res.Float64(r, c); e == nil {
+			var buf [64]byte
+			tmp := strconv.FormatFloat(buf[:0], v, 'g', -1, 64)
+			out := strings.Clone(alloc, tmp)
+			return out, true
+		}
 		out, e := res.StringCopy(alloc, r, c)
 		if e != nil {
 			return "?", false
+		}
+		const maxCell = 4096
+		if len(out) > maxCell {
+			mem.FreeString(alloc, out)
+			out = strings.Clone(alloc, "<value too long>")
+			return out, true
 		}
 		return out, true
 	}
