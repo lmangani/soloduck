@@ -24,9 +24,10 @@ CLI behavior is loosely aligned with the official DuckDB CLI (LTS):
 └-------------┘
 ```
 
-## Build
+## Install
+Download a [Release](https://github.com/lmangani/soloduck/releases/tag/0.0.0) for your OS/arch or build locally
 
-From a clone of this repo (with submodules):
+## Build
 
 ```bash
 git clone --recurse-submodules https://github.com/lmangani/soloduck.git
@@ -41,7 +42,7 @@ If you cloned without submodules:
 git submodule update --init --recursive
 ```
 
-You need **libduckdb** on the machine ([install](https://duckdb.org/install/?environment=c)). On macOS with Homebrew, `make` picks up `$(brew --prefix duckdb)` automatically. Else point the linker at headers and libraries:
+You need **libduckdb** on the machine ([install](https://duckdb.org/install/?environment=c))
 
 ```bash
 make DUCK_PREFIX=/usr/local
@@ -113,11 +114,7 @@ Query: 'SELECT version();'
   ratio (soloduck / duckdb-go mean wall time): 0.86x
 ```
 
-## CI
-
-Pushes and pull requests against **`main`** run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): Linux (**amd64** + **arm64**) and **macOS** builds using the same DuckDB **static-libs** bundles as [releases](.github/workflows/release.yml), then `./soloduck -version`.
-
-## Layout
+## Project Layout
 
 | Path | Purpose |
 |------|---------|
@@ -130,7 +127,4 @@ Pushes and pull requests against **`main`** run [`.github/workflows/ci.yml`](.gi
 
 `go.mod` uses `replace solod.dev => ./solod` so imports resolve to the submodule checkout.
 
-## Static binaries
-
-[Solod](https://github.com/solod-dev/solod) emits `C`; fully static linking depends on a static `libduckdb` and your platform.
 
