@@ -70,23 +70,11 @@ One-shot SQL (same idea as official `duckdb -c`):
 
 ## Benchmarks (startup + first query)
 
-Each script measures **wall time per fresh process**: startup, run one query via `-batch -c`, exit. Absolute milliseconds depend on machine and DuckDB linkage; **ratios** are the useful headline.
+### SoloDuck vs official DuckDB CLI
 
-### vs official DuckDB CLI
+This compares the official **DuckDB CLI** against **Solod + DuckDB’s C API** in `soloduck`
 
-Build `soloduck`, install the official CLI, then:
-
-```bash
-python3 scripts/benchmark_init.py --runs 25 --warmup 2
-```
-
-Optional: `DUCKDB_CLI`, `SOLODUCK`.
-
-```bash
-DUCKDB_CLI=/opt/homebrew/bin/duckdb SOLODUCK=./soloduck python3 scripts/benchmark_init.py
-```
-
-Reference benchmark (`python3 scripts/benchmark_init.py --runs 25 --warmup 2` on Apple Silicon M4; numbers vary by machine and load):
+Reference benchmark (`python3 scripts/benchmark_init.py --runs 25 --warmup 2` on Apple Silicon M4;
 
 ```
 Wall time per fresh process (startup + query + exit).
@@ -103,15 +91,11 @@ Query: 'SELECT version();'
   ratio (soloduck / duckdb mean wall time): 0.94x
 ```
 
-### vs Go (`database/sql` + [duckdb-go](https://github.com/duckdb/duckdb-go), CGO)
+### Solod vs Go (`database/sql` + [duckdb-go](https://github.com/duckdb/duckdb-go), CGO)
 
-The driver is **not** pure Go (CGO + bundled libduckdb). This compares **Go runtime + `database/sql` + duckdb-go** against **Solod + DuckDB’s C API** in `soloduck`. Build the harness once, then benchmark:
+This compares **Go runtime + `database/sql` + duckdb-go** against **Solod + DuckDB’s C API** in `soloduck`
 
-```bash
-python3 scripts/benchmark_init_go.py --build --runs 25 --warmup 2
-```
-
-Reference benchmark (`python3 scripts/benchmark_init_go.py --runs 25 --warmup 2` on the same machine, harness already built):
+Reference benchmark (`python3 scripts/benchmark_init_go.py --runs 25 --warmup 2` on Apple Silicon M4;
 
 ```
 Wall time per fresh process (startup + query + exit).
